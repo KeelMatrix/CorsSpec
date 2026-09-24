@@ -1,0 +1,16 @@
+bin/
+obj/
+artifacts/
+.vs/
+.idea/
+*.user
+*.suo
+*.nupkg
+*.snupkg
+*.trx
+TestResults/
+coverage/
+.env
+.env.*
+keelmatrix.telemetry.json
+*.log
