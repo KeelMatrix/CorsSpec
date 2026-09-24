@@ -49,6 +49,10 @@ var results = await new CorsVerifier(client).VerifyMatrixAsync(matrix);
 
 See [docs/cors-contracts.md](docs/cors-contracts.md) for preflight construction, middleware and endpoint policies, credentials, diagnostics, and the full limitation statement.
 
+## Compatibility
+
+The package targets `.NET 8` (`net8.0`). Verified support for this release line is Windows x64 with a compatible ASP.NET Core test host. Linux and macOS are not currently part of the verified support claim; see the [platform support matrix](docs/platform-support.md).
+
 ## Important limitation
 
 CORS is a browser cross-origin policy mechanism, not authentication or authorization. A passing CorsSpec contract does not prove that an endpoint is protected from non-browser callers, protected from CSRF, safe from server-side request forgery, or protected by a network firewall. CorsSpec does not implement middleware, repair policies, automate a browser, or contact an origin.
