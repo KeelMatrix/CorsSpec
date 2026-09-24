@@ -24,7 +24,7 @@ if ($failures.Count -eq 0) {
             Write-Output 'ICON_GATE: package-root icon.png is present; dimensions and founder confirmation remain release evidence.'
         }
         else {
-            Write-Error 'ICON_GATE_FAILED: required founder-owned repository-root icon.png is absent and was not packed. Place it at the exact path before frontier review; this gate is intentionally fail-closed.'
+            Write-Warning 'ICON_GATE_FAILED: required founder-owned repository-root icon.png is absent and was not packed. Place it at the exact path before frontier review; this gate is intentionally fail-closed.'
             $failures.Add('Missing required package-root icon.png')
         }
 
@@ -38,7 +38,7 @@ if ($failures.Count -eq 0) {
             try { $xml = [xml]$reader.ReadToEnd() } finally { $reader.Dispose() }
             $metadata = $xml.package.metadata
             if ($metadata.id -ne 'KeelMatrix.CorsSpec') { $failures.Add("Unexpected package id: $($metadata.id)") }
-            if ($metadata.license.expression -ne 'MIT') { $failures.Add('Package license expression is not MIT') }
+            if ($metadata.license.'#text' -ne 'MIT') { $failures.Add('Package license expression is not MIT') }
             if ($metadata.readme -ne 'README.md') { $failures.Add('Package README metadata is not README.md') }
             if ($metadata.icon -ne 'icon.png') { $failures.Add('Package icon metadata is not icon.png') }
         }

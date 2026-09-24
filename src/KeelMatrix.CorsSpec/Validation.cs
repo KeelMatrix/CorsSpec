@@ -6,7 +6,7 @@ internal static class Validation
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        if (path.Contains('\r') || path.Contains('\n'))
+        if (path.Contains('\r') || path.Contains('\n') || path.StartsWith("//", StringComparison.Ordinal))
         {
             throw new ArgumentException("The target path cannot contain line breaks.", nameof(path));
         }

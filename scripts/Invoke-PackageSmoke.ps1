@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $smoke = Join-Path $root 'tests\PackageSmoke\PackageSmoke.csproj'
 $feed = (Resolve-Path $PackageDirectory).Path
-$config = Join-Path $feed 'NuGet.config'
+$config = Join-Path $root 'artifacts\package-smoke.NuGet.config'
 @"
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>

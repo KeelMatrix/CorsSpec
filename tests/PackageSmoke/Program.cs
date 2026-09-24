@@ -2,11 +2,14 @@ using System.Net.Http;
 using KeelMatrix.CorsSpec;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
 builder.WebHost.UseTestServer();
+builder.Logging.ClearProviders();
 builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy.WithOrigins("https://allowed.example")));
 var app = builder.Build();
 app.UseRouting();
