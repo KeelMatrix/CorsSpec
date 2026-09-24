@@ -6,7 +6,7 @@ This document defines the verified platform boundary for the `KeelMatrix.CorsSpe
 
 | Platform | Runtime and host | Evidence | Support status |
 | --- | --- | --- | --- |
-| Windows x64 | Windows 10 x64, .NET SDK 8.0.408, ASP.NET Core 8.0 | Release integration tests and the isolated package-consumer smoke test run against a real ASP.NET Core `TestServer`; the smoke test installs the built `.nupkg` and verifies one allowed and one denied contract. | Verified for this release line |
+| Windows x64 | Windows 10 x64, repository-selected .NET 8 SDK (8.0.408 with `latestPatch`, resolved as 8.0.425), ASP.NET Core 8.0.31 | Release integration tests and the isolated package-consumer smoke test run against a real ASP.NET Core `TestServer`; the smoke test installs the built `.nupkg` and verifies one allowed and one denied contract. | Verified for this release line |
 
 ## Not yet verified
 
