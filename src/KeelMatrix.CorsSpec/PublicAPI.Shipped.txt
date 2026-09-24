@@ -1,0 +1,51 @@
+#nullable enable
+KeelMatrix.CorsSpec.CorsContract
+KeelMatrix.CorsSpec.CorsContract.CorsContract(KeelMatrix.CorsSpec.CorsScenario! scenario, KeelMatrix.CorsSpec.CorsExpectation! expectation) -> void
+KeelMatrix.CorsSpec.CorsContract.Expectation.get -> KeelMatrix.CorsSpec.CorsExpectation!
+KeelMatrix.CorsSpec.CorsContract.Scenario.get -> KeelMatrix.CorsSpec.CorsScenario!
+KeelMatrix.CorsSpec.CorsExpectation
+KeelMatrix.CorsSpec.CorsExpectation.AllowWildcardOrigin.get -> bool
+KeelMatrix.CorsSpec.CorsExpectation.ExpectedExposedHeaders.get -> System.Collections.Generic.IReadOnlyList<string!>!
+KeelMatrix.CorsSpec.CorsExpectation.ExpectedMaxAge.get -> System.TimeSpan?
+KeelMatrix.CorsSpec.CorsExpectation.IsAllowed.get -> bool
+KeelMatrix.CorsSpec.CorsExpectation.RequireVaryOrigin.get -> bool
+KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.CredentialsMismatch = 4 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.ExposedHeadersMismatch = 6 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.MalformedScenario = 0 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.MaxAgeMismatch = 7 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.MethodRejected = 2 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.MissingOrMismatchedAllowOrigin = 1 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.MissingVaryOrigin = 5 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.NetworkFailure = 9 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.RequestedHeaderRejected = 3 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.UnexpectedCorsPermission = 8 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsIssue
+KeelMatrix.CorsSpec.CorsIssue.Kind.get -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsIssue.Message.get -> string!
+KeelMatrix.CorsSpec.CorsMatrix
+KeelMatrix.CorsSpec.CorsMatrix.Contracts.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsContract!>!
+KeelMatrix.CorsSpec.CorsMatrix.CorsMatrix(System.Collections.Generic.IEnumerable<KeelMatrix.CorsSpec.CorsContract!>! contracts) -> void
+KeelMatrix.CorsSpec.CorsScenario
+KeelMatrix.CorsSpec.CorsScenario.CorsScenario(string! path, string! origin, System.Net.Http.HttpMethod! method, System.Collections.Generic.IEnumerable<string!>? requestedHeaders = null, bool useCredentials = false) -> void
+KeelMatrix.CorsSpec.CorsScenario.Method.get -> System.Net.Http.HttpMethod!
+KeelMatrix.CorsSpec.CorsScenario.Origin.get -> string!
+KeelMatrix.CorsSpec.CorsScenario.Path.get -> string!
+KeelMatrix.CorsSpec.CorsScenario.RequestedHeaders.get -> System.Collections.Generic.IReadOnlyList<string!>!
+KeelMatrix.CorsSpec.CorsScenario.UseCredentials.get -> bool
+KeelMatrix.CorsSpec.CorsVerificationResult
+KeelMatrix.CorsSpec.CorsVerificationResult.ActualRequestSent.get -> bool
+KeelMatrix.CorsSpec.CorsVerificationResult.ActualStatusCode.get -> System.Net.HttpStatusCode?
+KeelMatrix.CorsSpec.CorsVerificationResult.Contract.get -> KeelMatrix.CorsSpec.CorsContract!
+KeelMatrix.CorsSpec.CorsVerificationResult.EnsureSuccess() -> void
+KeelMatrix.CorsSpec.CorsVerificationResult.IsSuccess.get -> bool
+KeelMatrix.CorsSpec.CorsVerificationResult.Issues.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsIssue!>!
+KeelMatrix.CorsSpec.CorsVerificationResult.PreflightSent.get -> bool
+KeelMatrix.CorsSpec.CorsVerificationResult.PreflightStatusCode.get -> System.Net.HttpStatusCode?
+KeelMatrix.CorsSpec.CorsVerificationResult.Summary.get -> string!
+KeelMatrix.CorsSpec.CorsVerifier
+KeelMatrix.CorsSpec.CorsVerifier.CorsVerifier(System.Net.Http.HttpClient! client) -> void
+KeelMatrix.CorsSpec.CorsVerifier.VerifyAsync(KeelMatrix.CorsSpec.CorsContract! contract, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<KeelMatrix.CorsSpec.CorsVerificationResult!>!
+KeelMatrix.CorsSpec.CorsVerifier.VerifyMatrixAsync(KeelMatrix.CorsSpec.CorsMatrix! matrix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsVerificationResult!>!>!
+static KeelMatrix.CorsSpec.CorsExpectation.Allowed(bool allowWildcardOrigin = false, System.Collections.Generic.IEnumerable<string!>? expectedExposedHeaders = null, System.TimeSpan? expectedMaxAge = null, bool requireVaryOrigin = false) -> KeelMatrix.CorsSpec.CorsExpectation!
+static KeelMatrix.CorsSpec.CorsExpectation.Denied() -> KeelMatrix.CorsSpec.CorsExpectation!

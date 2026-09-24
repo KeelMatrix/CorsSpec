@@ -1,0 +1,17 @@
+# Development guide
+
+## Prerequisites
+
+Install the .NET 8 SDK selected by `global.json` and PowerShell 7.
+
+## Local validation
+
+From the repository root:
+
+```powershell
+pwsh ./scripts/Validate.ps1
+```
+
+The gate restores from `NuGet.config`, builds all solution projects in Release, runs unit and real-pipeline integration tests, creates the exact `.nupkg` and `.snupkg` artifacts under ignored `artifacts/packages`, inspects their contents, runs a clean package-reference consumer, and audits dependencies. The package inspection continues after reporting a missing founder-owned `icon.png`, but the overall gate remains failed until that prerequisite is satisfied.
+
+For an inner loop, run `dotnet test tests/KeelMatrix.CorsSpec.Tests -c Release` or `pwsh ./scripts/Validate.ps1 -Mode Focused -SkipPackage`.

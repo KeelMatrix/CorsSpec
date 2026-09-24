@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <AssemblyName>KeelMatrix.CorsSpec</AssemblyName>
+    <RootNamespace>KeelMatrix.CorsSpec</RootNamespace>
+    <PackageId>KeelMatrix.CorsSpec</PackageId>
+    <Description>Verify ASP.NET Core CORS and preflight behavior with executable endpoint/origin contracts.</Description>
+    <PackageTags>cors;aspnetcore;preflight;testing;http;integration-testing;security</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageIcon>icon.png</PackageIcon>
+    <Copyright>KeelMatrix</Copyright>
+    <RepositoryUrl>https://github.com/KeelMatrix/CorsSpec</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/KeelMatrix/CorsSpec</PackageProjectUrl>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnablePublicApiAnalyzers>true</EnablePublicApiAnalyzers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="README.md" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
+    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
+    <InternalsVisibleTo Include="KeelMatrix.CorsSpec.Tests" />
+    <InternalsVisibleTo Include="KeelMatrix.CorsSpec.IntegrationTests" />
+  </ItemGroup>
+</Project>
