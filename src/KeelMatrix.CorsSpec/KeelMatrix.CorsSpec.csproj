@@ -9,13 +9,16 @@
     <PackageTags>cors;aspnetcore;preflight;testing;http;integration-testing;security</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageIcon>icon.png</PackageIcon>
     <Copyright>KeelMatrix</Copyright>
     <RepositoryUrl>https://github.com/KeelMatrix/CorsSpec</RepositoryUrl>
     <PackageProjectUrl>https://github.com/KeelMatrix/CorsSpec</PackageProjectUrl>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnablePublicApiAnalyzers>true</EnablePublicApiAnalyzers>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/../../icon.png')">
+    <PackageIcon>icon.png</PackageIcon>
   </PropertyGroup>
 
   <ItemGroup>
