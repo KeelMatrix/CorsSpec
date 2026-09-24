@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  KEELMATRIX_NO_TELEMETRY: '1'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Validate release tag and changelog contract
+        id: release-version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+              throw "Malformed release tag '$env:RELEASE_TAG'. Expected vX.Y.Z."
+          }
+          $version = $Matches.version
+          pwsh -NoProfile -File ./scripts/Validate-ReleaseContract.ps1 -Tag $env:RELEASE_TAG
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Run release-equivalent validation
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -Version "${{ steps.release-version.outputs.version }}"
+
+      - name: Re-run release contract against exact tag and artifacts
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: pwsh -NoProfile -File ./scripts/Validate-ReleaseContract.ps1 -Tag $env:RELEASE_TAG -ArtifactDirectory ./artifacts/packages
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-release-packages
+          path: ./artifacts/packages
+          if-no-files-found: error
+
+      - name: Authenticate to NuGet.org
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: dmitriyzen
+
+      - name: Push exact package artifacts
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          $source = 'https://api.nuget.org/v3/index.json'
+          $package = "./artifacts/packages/KeelMatrix.CorsSpec.$env:RELEASE_VERSION.nupkg"
+          $symbols = "./artifacts/packages/KeelMatrix.CorsSpec.$env:RELEASE_VERSION.snupkg"
+          foreach ($artifact in @($package, $symbols)) {
+              if (-not (Test-Path -LiteralPath $artifact)) {
+                  throw "Expected release artifact is missing: $artifact"
+              }
+          }
+          dotnet nuget push $package --source $source --api-key $env:NUGET_API_KEY --no-symbols
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet nuget push $symbols --source $source --api-key $env:NUGET_API_KEY
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
