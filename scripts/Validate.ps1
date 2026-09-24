@@ -26,6 +26,12 @@ if (-not $SkipPackage) {
     Run-Stage 'Package build' { dotnet pack $project --configuration Release --no-build --no-restore --output $packages }
     $package = Join-Path $packages 'KeelMatrix.CorsSpec.0.1.0.nupkg'
     $symbols = Join-Path $packages 'KeelMatrix.CorsSpec.0.1.0.snupkg'
+    $expectedArtifacts = @('KeelMatrix.CorsSpec.0.1.0.nupkg', 'KeelMatrix.CorsSpec.0.1.0.snupkg')
+    $actualArtifacts = @(Get-ChildItem -LiteralPath $packages -File | Where-Object { $_.Extension -in @('.nupkg', '.snupkg') } | Select-Object -ExpandProperty Name)
+    if (@($actualArtifacts | Where-Object { $expectedArtifacts -notcontains $_ }).Count -ne 0 -or @($expectedArtifacts | Where-Object { $actualArtifacts -notcontains $_ }).Count -ne 0) {
+        Write-Error "PACKAGE_GATE_FAILED: expected exactly $($expectedArtifacts -join ', '), found $($actualArtifacts -join ', ')."
+        $failures.Add('Exact package artifact set')
+    }
     Run-Stage 'Package inspection (icon gate is fail-closed but non-blocking for later evidence)' { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols }
     Run-Stage 'Package consumer smoke' { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
 }

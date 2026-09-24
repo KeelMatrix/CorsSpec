@@ -9,6 +9,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
-    <PackageReference Include="KeelMatrix.CorsSpec" Version="0.1.0" />
+    <PackageReference Include="KeelMatrix.CorsSpec" />
   </ItemGroup>
 </Project>
