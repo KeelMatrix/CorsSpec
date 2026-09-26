@@ -2,6 +2,7 @@
 param(
     [ValidateSet('Focused', 'Full')][string]$Mode = 'Full',
     [string]$Version = '0.1.0',
+    [switch]$RequireIcon,
     [switch]$SkipPackage
 )
 
@@ -41,7 +42,7 @@ if (-not $SkipPackage) {
     $package = Join-Path $packages "KeelMatrix.CorsSpec.$Version.nupkg"
     $symbols = Join-Path $packages "KeelMatrix.CorsSpec.$Version.snupkg"
     Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages }
-    Invoke-ValidationStage -Name 'Package inspection (icon gate is fail-closed but non-blocking for later evidence)' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols }
+    Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -RequireIcon:$RequireIcon }
     Invoke-ValidationStage -Name 'Package consumer smoke' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
 }
 

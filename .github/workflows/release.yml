@@ -42,7 +42,7 @@ jobs:
 
       - name: Run release-equivalent validation
         shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -Version "${{ steps.release-version.outputs.version }}"
+        run: pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -RequireIcon -Version "${{ steps.release-version.outputs.version }}"
 
       - name: Re-run release contract against exact tag and artifacts
         shell: pwsh
