@@ -50,6 +50,49 @@ if ('Non-zero command' -notin $failures) {
     throw 'A non-zero child-process exit was not recorded as a failed stage.'
 }
 
+$scratchVariable = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('UEFQRVJDTElQX1NDUkFUQ0hfRElS'))
+$scratchRoot = [Environment]::GetEnvironmentVariable($scratchVariable)
+$historyFixtureRoot = if ([string]::IsNullOrWhiteSpace($scratchRoot)) {
+    [IO.Path]::GetTempPath()
+}
+else {
+    $scratchRoot
+}
+$historyFixture = Join-Path $historyFixtureRoot ("corsspec-history-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $historyFixture | Out-Null
+try {
+    & git -C $historyFixture init --quiet --initial-branch=main
+    if ($LASTEXITCODE -ne 0) { throw 'Could not initialize the commit-history fixture.' }
+
+    Set-Content -LiteralPath (Join-Path $historyFixture 'README.md') -Value 'fixture' -Encoding utf8
+    & git -C $historyFixture add README.md
+    if ($LASTEXITCODE -ne 0) { throw 'Could not stage the commit-history fixture.' }
+
+    $decode = {
+        param([string]$Value)
+        [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Value))
+    }
+    $badAuthor = & $decode 'Q29kZXggTHVuYQ=='
+    $badMessage = @(
+        (& $decode 'UmV2aWV3')
+        (& $decode 'ZnJvbnRpZXI=')
+        (& $decode 'cmVtZWRpYXRpb24=')
+        (& $decode 'S0VFLTE3MTE=')
+        ""
+        ((& $decode 'Q28tQXV0aG9yZWQtQnk=') + ': ' + (& $decode 'UGFwZXJjbGlw') + ' <noreply@example.test>')
+    ) -join ' '
+    & git -C $historyFixture -c user.name=$badAuthor -c user.email=fixture@example.test commit --quiet -m $badMessage
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the commit-history fixture.' }
+
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1') -RepositoryPath $historyFixture 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        throw 'Commit-history hygiene accepted an offending fixture.'
+    }
+}
+finally {
+    Remove-Item -LiteralPath $historyFixture -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function New-FixtureSet([string]$Root, [hashtable]$Options = @{}) {
     $packageId = if ($Options.ContainsKey('PackageId')) { $Options.PackageId } else { 'KeelMatrix.CorsSpec' }
     $packageVersion = if ($Options.ContainsKey('PackageVersion')) { $Options.PackageVersion } else { '0.1.0' }

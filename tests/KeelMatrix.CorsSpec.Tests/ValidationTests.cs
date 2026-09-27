@@ -59,6 +59,112 @@ public sealed class ValidationTests
         Assert.Empty(handler.Requests);
     }
 
+    public static IEnumerable<object[]> BrowserMethodCasingCases()
+    {
+        foreach (var method in new[] { "DELETE", "GET", "HEAD", "OPTIONS", "POST", "PUT" })
+        {
+            foreach (var variant in CasingVariants(method))
+            {
+                yield return new object[] { variant, method, method is "GET" or "HEAD" or "POST" };
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(BrowserMethodCasingCases))]
+    public async Task Browser_method_casing_is_normalized_before_classification_and_request_construction(
+        string input,
+        string expected,
+        bool isSimple)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: expected)
+            : ResponseFactory.Cors());
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var scenario = new CorsScenario("/orders", "https://app.example", new HttpMethod(input));
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(expected, scenario.Method.Method);
+        Assert.Equal(!isSimple, result.PreflightSent);
+        Assert.Equal(isSimple ? 1 : 2, handler.Requests.Count);
+        if (!isSimple)
+        {
+            Assert.Equal(expected, handler.Requests[0].Headers.GetValues("Access-Control-Request-Method").Single());
+        }
+
+        Assert.Equal(expected, handler.Requests[^1].Method.Method);
+    }
+
+    private static IEnumerable<string> CasingVariants(string value, int index = 0)
+    {
+        if (index == value.Length)
+        {
+            yield return string.Empty;
+            yield break;
+        }
+
+        foreach (var suffix in CasingVariants(value, index + 1))
+        {
+            yield return char.ToUpperInvariant(value[index]) + suffix;
+            yield return char.ToLowerInvariant(value[index]) + suffix;
+        }
+    }
+
+    [Fact]
+    public async Task Custom_method_casing_remains_unchanged()
+    {
+        const string customMethod = "pAtCh";
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: customMethod)
+            : ResponseFactory.Cors());
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var scenario = new CorsScenario("/orders", "https://app.example", new HttpMethod(customMethod));
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(customMethod, scenario.Method.Method);
+        Assert.Equal(customMethod, handler.Requests[0].Headers.GetValues("Access-Control-Request-Method").Single());
+        Assert.Equal(customMethod, handler.Requests[1].Method.Method);
+    }
+
+    public static IEnumerable<object[]> RawControlPathCases()
+    {
+        foreach (var codePoint in Enumerable.Range(0, 32).Append(0x7f))
+        {
+            yield return new object[] { "/orders" + (char)codePoint };
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RawControlPathCases))]
+    public void Scenario_rejects_every_raw_c0_control_and_del_path_before_io(string path)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("/orders")]
+    [InlineData("orders")]
+    [InlineData("/orders?status=open")]
+    [InlineData("/orders/%00")]
+    [InlineData("/orders/%09")]
+    [InlineData("/orders/%1F")]
+    [InlineData("/orders/%7F")]
+    public void Relative_paths_and_percent_encoded_control_data_remain_valid(string path)
+    {
+        var scenario = new CorsScenario(path, "https://app.example", HttpMethod.Get);
+        using var request = CorsVerifier.CreateActualRequest(scenario);
+
+        Assert.False(request.RequestUri!.IsAbsoluteUri);
+    }
+
     [Theory]
     [InlineData("https://app.example/")]
     [InlineData("https://app.example:443")]

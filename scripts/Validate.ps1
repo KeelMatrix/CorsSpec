@@ -37,6 +37,9 @@ $env:KEELMATRIX_NO_TELEMETRY = '1'
 Invoke-ValidationStage -Name 'Tracked-text hygiene' -Failures $failures -Command {
     pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-TrackedText.ps1')
 }
+Invoke-ValidationStage -Name 'Commit history hygiene' -Failures $failures -Command {
+    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1')
+}
 Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
     pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
 }

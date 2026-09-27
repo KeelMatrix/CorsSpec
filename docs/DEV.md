@@ -16,6 +16,8 @@ The gate restores from `NuGet.config`, builds all solution projects in Release, 
 
 For an inner loop, run `dotnet test tests/KeelMatrix.CorsSpec.Tests -c Release` or `pwsh ./scripts/Validate.ps1 -Mode Focused -SkipPackage`.
 
+The focused unit suite covers every casing variant of the six browser-standard methods, custom-method casing preservation, all raw C0/`DEL` path controls, and valid percent-encoded path data. The validation gate also scans all reachable commit history and requires CI to fetch full history.
+
 ## Platform evidence
 
 The verified Windows, Linux, and macOS support boundary and its required evidence are recorded in [docs/platform-support.md](platform-support.md). Each claimed operating system requires its own package-consumer and ASP.NET Core integration run.

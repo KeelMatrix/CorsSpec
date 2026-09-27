@@ -12,6 +12,8 @@ This document defines the verified platform boundary for the `KeelMatrix.CorsSpe
 
 The support claim depends on all three CI legs remaining green. The validation scripts use platform-native path joins, isolated temporary/cache paths, and the same package-consumer and ASP.NET Core evidence on each runner.
 
+The request contract is platform-independent: browser-standard method names are normalized to uppercase, custom method casing is preserved, and raw C0/`DEL` path controls are rejected before the caller's handler on every supported platform.
+
 ## Consumer boundary
 
 The package is intended for `.NET 8` test projects and a caller-selected ASP.NET Core test host. CorsSpec does not start the host, contact the origin named in a scenario, or require browser automation. A consumer may supply an externally routed `HttpClient`, but that network behavior belongs to the consumer and is not platform evidence for CorsSpec itself.

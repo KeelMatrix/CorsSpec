@@ -6,9 +6,9 @@ internal static class Validation
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        if (path.Contains('\r') || path.Contains('\n'))
+        if (path.Any(static character => character <= '\u001f' || character == '\u007f'))
         {
-            throw new ArgumentException("The target path cannot contain line breaks.", nameof(path));
+            throw new ArgumentException("The target path cannot contain raw control characters.", nameof(path));
         }
 
         if (path.Contains('\\') ||
@@ -49,6 +49,16 @@ internal static class Validation
             method.Method.Equals("TRACK", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("The HTTP method is forbidden for browser-style CORS requests.", nameof(method));
+        }
+
+        if (method.Method.Equals("DELETE", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("GET", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("HEAD", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("POST", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("PUT", StringComparison.OrdinalIgnoreCase))
+        {
+            return new HttpMethod(method.Method.ToUpperInvariant());
         }
 
         return method;

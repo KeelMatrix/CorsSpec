@@ -11,3 +11,5 @@ Include the affected package version, a minimal reproduction, impact, and any re
 The latest stable package version receives security fixes. Older versions may receive fixes when the issue is severe and the change can be made without breaking supported consumers.
 
 For ordinary defects or feature requests, use the public GitHub issue tracker after removing sensitive data.
+
+CorsSpec validates browser-facing method and target-path representations before invoking the caller's handler. It normalizes the six browser-standard method names and rejects raw control characters in relative paths; these checks do not replace authentication, authorization, CSRF, or network-security controls in the application under test.
