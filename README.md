@@ -26,6 +26,13 @@ var result = await new CorsVerifier(client).VerifyAsync(contract);
 result.EnsureSuccess();
 ```
 
+For a preflighted scenario, use a clean handler factory when the actual-request client has defaults or a delegating handler that adds headers:
+
+```csharp
+var verifier = new CorsVerifier(testClient, () => testServer.CreateHandler());
+var result = await verifier.VerifyAsync(contract);
+```
+
 An allowed result requires the response to grant the requested origin. A denied contract passes when browser-relevant CORS headers block that origin; it does not require a particular HTTP status. Set `requireVaryOrigin: true` when the application varies a response by origin and the cache-safety marker is part of the contract.
 
 ```csharp
@@ -40,9 +47,9 @@ var denied = new CorsContract(
 
 CorsSpec normalizes case-insensitive browser methods (`DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT`) to uppercase before simple-method classification and request construction. It constructs a browser-style preflight with `Accept: */*` for non-simple methods or requested headers, then executes the actual request only when a 2xx preflight grants access. It interprets `Access-Control-Allow-Origin`, methods, requested headers, credentials, exposed headers, max-age, and `Vary: Origin`. A `204` preflight is not automatically a pass: a missing method or requested header fails an allowed contract except that a preflighted `GET`, `HEAD`, or `POST` does not require an allow-method match; malformed present lists still fail closed, and a non-2xx preflight always fails an allowed contract. Other valid custom method names retain their caller-provided casing and require exact-case allow-method matching.
 
-The scenario API accepts header names, not values. To avoid a name-only false negative, every requested caller-added header conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`; list those names for both default and per-request handler headers. Response-header assertions honor the browser safelist (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, and `Pragma`) and fail closed on malformed CORS metadata; origin and list values trim only HTTP optional whitespace (`SP` and `HTAB`).
+The scenario API accepts header names, not values. To avoid a name-only false negative, every requested caller-added header conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`; list those names for the actual request. A factory-created preflight handler must not add caller headers, so `OPTIONS` carries only the browser preflight metadata while the actual request keeps the caller's defaults and handler behavior. The one-argument constructor rejects a preflight when `DefaultRequestHeaders` is non-empty. Response-header assertions honor the browser safelist (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, and `Pragma`) and fail closed on malformed CORS metadata; origin and list values trim only HTTP optional whitespace (`SP` and `HTAB`).
 
-Scenario targets must be relative application paths; raw C0 controls (`U+0000`–`U+001F`) and `DEL` (`U+007F`), URI authorities, schemes, backslashes, UNC/device paths, and slash-prefixed root-relative Windows drive paths such as `/C:` or `/C:/orders` are rejected before I/O. Percent-encoded path data remains valid. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods, browser-managed headers, and conditional override headers (`X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override`) are also rejected before I/O. `Set-Cookie` and `Set-Cookie2` cannot be asserted as exposed response headers because browsers forbid exposing them.
+Scenario targets must be relative application paths; raw C0 controls (`U+0000`–`U+001F`) and `DEL` (`U+007F`), URI authorities and schemes at the reference start, backslashes, UNC/device paths, and slash-prefixed root-relative Windows drive paths such as `/C:` or `/C:/orders` are rejected before I/O. Percent-encoded path data remains valid, and raw scheme-like text in query or fragment data such as `?next=https://external.example/orders` remains valid. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods, browser-managed headers, and conditional override headers (`X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override`) are also rejected before I/O. `Set-Cookie` and `Set-Cookie2` cannot be asserted as exposed response headers because browsers forbid exposing them.
 
 Use `CorsMatrix` for a small set of contracts:
 

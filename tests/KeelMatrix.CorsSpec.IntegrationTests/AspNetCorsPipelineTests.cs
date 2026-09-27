@@ -115,6 +115,30 @@ public sealed class AspNetCorsPipelineTests
     }
 
     [Fact]
+    public async Task Credentialed_preflight_is_not_contaminated_by_actual_client_handler_headers()
+    {
+        await using var host = await TestCorsHost.CreateAsync(CorsHostMode.Credentials, rejectCredentialedPreflights: true);
+        var actualRequests = new HeaderCaptureHandler(host.CreateHandler(),
+            ("Authorization", "Bearer synthetic"),
+            ("X-Trace", "handler-added"),
+            ("Cookie", "session=synthetic"));
+        using var client = new HttpClient(actualRequests) { BaseAddress = host.Client.BaseAddress };
+        var contract = new CorsContract(
+            new CorsScenario("/orders", "https://credentialed.example", HttpMethod.Delete, new[] { "X-Trace" }, useCredentials: true),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }));
+
+        var result = await new CorsVerifier(client, host.CreateHandler).VerifyAsync(contract);
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(1, host.PreflightObservations);
+        Assert.Equal(0, host.CredentialedPreflightRejections);
+        var actual = Assert.Single(actualRequests.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.Equal("Bearer synthetic", actual.Headers.GetValues("Authorization").Single());
+        Assert.Equal("handler-added", actual.Headers.GetValues("X-Trace").Single());
+        Assert.Equal("session=synthetic", actual.Headers.GetValues("Cookie").Single());
+    }
+
+    [Fact]
     public async Task Wildcard_policy_is_accepted_when_the_contract_explicitly_allows_it()
     {
         await using var host = await TestCorsHost.CreateAsync(CorsHostMode.Wildcard);
@@ -139,5 +163,35 @@ public sealed class AspNetCorsPipelineTests
 
         Assert.False(result.IsSuccess);
         Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.UnexpectedCorsPermission);
+    }
+}
+
+internal sealed class HeaderCaptureHandler : DelegatingHandler
+{
+    private readonly IReadOnlyList<(string Name, string Value)> _headers;
+
+    public HeaderCaptureHandler(HttpMessageHandler innerHandler, params (string Name, string Value)[] headers)
+        : base(innerHandler)
+    {
+        _headers = headers;
+    }
+
+    public List<HttpRequestMessage> Requests { get; } = new();
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        foreach (var (name, value) in _headers)
+        {
+            request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        var clone = new HttpRequestMessage(request.Method, request.RequestUri);
+        foreach (var header in request.Headers)
+        {
+            clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
+        Requests.Add(clone);
+        return base.SendAsync(request, cancellationToken);
     }
 }

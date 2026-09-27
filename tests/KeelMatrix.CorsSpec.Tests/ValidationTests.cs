@@ -26,6 +26,8 @@ public sealed class ValidationTests
 
     [Theory]
     [InlineData("https://service.test/orders")]
+    [InlineData("http:orders")]
+    [InlineData("custom+scheme:orders")]
     [InlineData("//other-host/orders")]
     [InlineData("\\\\evil\\share")]
     [InlineData("/\\evil\\share")]
@@ -33,6 +35,7 @@ public sealed class ValidationTests
     [InlineData("\\\\?\\C:\\orders")]
     [InlineData("\\\\.\\pipe\\orders")]
     [InlineData("\\orders")]
+    [InlineData("C:orders")]
     [InlineData("C:\\orders")]
     public void Scenario_rejects_absolute_authority_and_windows_separator_paths(string path)
     {
@@ -196,6 +199,42 @@ public sealed class ValidationTests
         using var request = CorsVerifier.CreateActualRequest(scenario);
 
         Assert.False(request.RequestUri!.IsAbsoluteUri);
+    }
+
+    public static IEnumerable<object[]> SchemeLikeDelimiterCases()
+    {
+        foreach (var path in new[]
+        {
+            "/redirect?next=https://external.example/orders",
+            "redirect?next=https://external.example/orders",
+            "/redirect?next=https://",
+            "/redirect?next=://external.example/orders",
+            "/redirect?next=https://external.example/orders&tail=1",
+            "/redirect?next=https%3A%2F%2Fexternal.example/orders",
+            "/redirect#next=https://external.example/orders",
+            "redirect#next=https://external.example/orders",
+        })
+        {
+            yield return new object[] { path };
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(SchemeLikeDelimiterCases))]
+    public async Task Relative_targets_accept_and_send_scheme_like_query_or_fragment_data(string path)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors());
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario(path, "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal(new Uri(new Uri("https://service.test"), path).PathAndQuery, request.RequestUri!.PathAndQuery);
+        Assert.Equal(new Uri(new Uri("https://service.test"), path).Fragment, request.RequestUri.Fragment);
     }
 
     [Theory]

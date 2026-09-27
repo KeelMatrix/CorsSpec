@@ -68,7 +68,7 @@ public sealed class RequestGenerationTests
         });
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
-        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
                 "/orders",
                 "https://app.example",
@@ -95,7 +95,7 @@ public sealed class RequestGenerationTests
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace", "Authorization" }),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }, expectedMaxAge: TimeSpan.FromMinutes(10)));
 
-        var result = await new CorsVerifier(client).VerifyAsync(contract);
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(contract);
 
         Assert.True(result.IsSuccess, result.Summary);
         Assert.Equal(2, handler.Requests.Count);
@@ -108,6 +108,93 @@ public sealed class RequestGenerationTests
     }
 
     [Fact]
+    public async Task Dedicated_preflight_handler_isolated_from_client_defaults_while_actual_keeps_them()
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "Authorization, X-Trace", credentials: true));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("X-Trace", "caller-default");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer synthetic");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", "session=synthetic");
+
+        var scenario = new CorsScenario(
+            "/orders",
+            "https://app.example",
+            HttpMethod.Delete,
+            new[] { "Authorization", "X-Trace" },
+            useCredentials: true);
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        var preflight = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Options);
+        Assert.Equal(
+            new[] { "Accept", "Access-Control-Request-Headers", "Access-Control-Request-Method", "Origin" },
+            preflight.Headers.Select(header => header.Key).OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Authorization", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Cookie", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Trace", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+
+        var actual = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.Equal("Bearer synthetic", actual.Headers.GetValues("Authorization").Single());
+        Assert.Equal("caller-default", actual.Headers.GetValues("X-Trace").Single());
+        Assert.Equal("session=synthetic", actual.Headers.GetValues("Cookie").Single());
+    }
+
+    [Fact]
+    public async Task Dedicated_preflight_handler_isolated_from_delegating_handler_headers_while_actual_keeps_them()
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "Authorization, X-Trace", credentials: true));
+        using var client = new HttpClient(new HeaderAddingHandler(handler,
+            ("Authorization", "Bearer handler"),
+            ("X-Trace", "handler"),
+            ("Cookie", "session=handler")))
+        {
+            BaseAddress = new Uri("https://service.test")
+        };
+
+        var scenario = new CorsScenario(
+            "/orders",
+            "https://app.example",
+            HttpMethod.Delete,
+            new[] { "Authorization", "X-Trace" },
+            useCredentials: true);
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        var preflight = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Options);
+        Assert.Equal(
+            new[] { "Accept", "Access-Control-Request-Headers", "Access-Control-Request-Method", "Origin" },
+            preflight.Headers.Select(header => header.Key).OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
+        Assert.DoesNotContain("Authorization", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Cookie", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Trace", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
+
+        var actual = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.Equal("Bearer handler", actual.Headers.GetValues("Authorization").Single());
+        Assert.Equal("handler", actual.Headers.GetValues("X-Trace").Single());
+        Assert.Equal("session=handler", actual.Headers.GetValues("Cookie").Single());
+    }
+
+    [Fact]
+    public async Task Default_headers_fail_closed_without_a_dedicated_preflight_handler()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer synthetic");
+
+        var contract = new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new CorsVerifier(client).VerifyAsync(contract));
+
+        Assert.Contains("dedicated preflight handler factory", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task Denied_preflight_does_not_send_actual_request()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: "GET"));
@@ -116,7 +203,7 @@ public sealed class RequestGenerationTests
             new CorsScenario("/orders", "https://untrusted.example", HttpMethod.Delete),
             CorsExpectation.Denied());
 
-        var result = await new CorsVerifier(client).VerifyAsync(contract);
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(contract);
 
         Assert.True(result.IsSuccess, result.Summary);
         Assert.True(result.PreflightSent);
@@ -157,7 +244,7 @@ public sealed class RequestGenerationTests
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, value);
 
-        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }),
             CorsExpectation.Allowed()));
 

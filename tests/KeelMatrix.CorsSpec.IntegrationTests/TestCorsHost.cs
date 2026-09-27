@@ -9,17 +9,29 @@ namespace KeelMatrix.CorsSpec.IntegrationTests;
 internal sealed class TestCorsHost : IAsyncDisposable
 {
     private readonly WebApplication _application;
+    private readonly Func<int> _preflightObservations;
+    private readonly Func<int> _credentialedPreflightRejections;
 
-    private TestCorsHost(WebApplication application)
+    private TestCorsHost(WebApplication application, Func<int> preflightObservations, Func<int> credentialedPreflightRejections)
     {
         _application = application;
+        _preflightObservations = preflightObservations;
+        _credentialedPreflightRejections = credentialedPreflightRejections;
         Client = application.GetTestClient();
     }
 
     public HttpClient Client { get; }
 
-    public static async Task<TestCorsHost> CreateAsync(CorsHostMode mode)
+    public int PreflightObservations => _preflightObservations();
+
+    public int CredentialedPreflightRejections => _credentialedPreflightRejections();
+
+    public HttpMessageHandler CreateHandler() => _application.GetTestServer().CreateHandler();
+
+    public static async Task<TestCorsHost> CreateAsync(CorsHostMode mode, bool rejectCredentialedPreflights = false)
     {
+        var preflightObservations = 0;
+        var credentialedPreflightRejections = 0;
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
         builder.WebHost.UseTestServer();
         builder.Services.AddCors(options =>
@@ -48,11 +60,24 @@ internal sealed class TestCorsHost : IAsyncDisposable
         app.UseRouting();
         app.Use(async (context, next) =>
         {
-            if (context.Request.Method == HttpMethod.Options.Method &&
-                (context.Request.Headers.Accept.Count != 1 || context.Request.Headers.Accept[0] != "*/*"))
+            if (context.Request.Method == HttpMethod.Options.Method)
             {
-                context.Response.StatusCode = StatusCodes.Status406NotAcceptable;
-                return;
+                preflightObservations++;
+                var hasCallerCredentialOrCustomHeader = context.Request.Headers.Authorization.Count != 0 ||
+                    context.Request.Headers.Cookie.Count != 0 ||
+                    context.Request.Headers.ContainsKey("X-Trace");
+                if (rejectCredentialedPreflights && hasCallerCredentialOrCustomHeader)
+                {
+                    credentialedPreflightRejections++;
+                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    return;
+                }
+
+                if (context.Request.Headers.Accept.Count != 1 || context.Request.Headers.Accept[0] != "*/*")
+                {
+                    context.Response.StatusCode = StatusCodes.Status406NotAcceptable;
+                    return;
+                }
             }
 
             await next();
@@ -82,7 +107,7 @@ internal sealed class TestCorsHost : IAsyncDisposable
         }
 
         await app.StartAsync();
-        return new TestCorsHost(app);
+        return new TestCorsHost(app, () => preflightObservations, () => credentialedPreflightRejections);
     }
 
     public async ValueTask DisposeAsync()

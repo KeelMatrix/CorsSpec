@@ -14,7 +14,6 @@ internal static class Validation
         if (IsRootRelativeWindowsDrivePath(path) ||
             path.Contains('\\') ||
             path.StartsWith("//", StringComparison.Ordinal) ||
-            path.Contains("://", StringComparison.Ordinal) ||
             System.Text.RegularExpressions.Regex.IsMatch(path, "^[A-Za-z][A-Za-z0-9+.-]*:"))
         {
             throw new ArgumentException("The target must be a relative application path; use the caller's HttpClient to select the destination.", nameof(path));

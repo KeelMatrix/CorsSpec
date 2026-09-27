@@ -16,7 +16,7 @@ The gate restores from `NuGet.config`, builds all solution projects in Release, 
 
 For an inner loop, run `dotnet test tests/KeelMatrix.CorsSpec.Tests -c Release` or `pwsh ./scripts/Validate.ps1 -Mode Focused -SkipPackage`.
 
-The focused unit suite covers every casing variant of the six browser-standard methods, custom-method exact-case allow-list matching, safelisted-method preflight behavior including credential and wildcard boundaries, exact `Accept: */*` preflight construction, absolute/authority/separator/UNC/device and slash-prefixed root-relative Windows drive path rejection, all raw C0/`DEL` path controls, valid percent-encoded path data, one activation request per meaningful execution, matrix aggregation, suppression, telemetry failure isolation, and the captured shared activation-payload allowlist. The validation gate also scans all reachable commit history and requires CI to fetch full history.
+The focused unit suite covers every casing variant of the six browser-standard methods, custom-method exact-case allow-list matching, safelisted-method preflight behavior including credential and wildcard boundaries, exact isolated `OPTIONS` metadata with default and delegating-handler header cases, absolute/authority/separator/UNC/device and slash-prefixed root-relative Windows drive path rejection, raw scheme-like `://` query/fragment boundary cases, all raw C0/`DEL` path controls, valid percent-encoded path data, one activation request per meaningful execution, matrix aggregation, suppression, telemetry failure isolation, and the captured shared activation-payload allowlist. The validation gate also scans all reachable commit history and requires CI to fetch full history.
 
 ## Platform evidence
 

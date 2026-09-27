@@ -44,7 +44,7 @@ app.MapMethods("/orders", allowedMethods, () => Results.Ok());
 await app.StartAsync();
 
 using var client = app.GetTestClient();
-var verifier = new CorsVerifier(client);
+var verifier = new CorsVerifier(client, app.GetTestServer().CreateHandler);
 var allowed = await verifier.VerifyAsync(new CorsContract(
     new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get),
     CorsExpectation.Allowed()));

@@ -6,18 +6,38 @@ namespace KeelMatrix.CorsSpec;
 public sealed class CorsVerifier
 {
     private readonly HttpClient _client;
+    private readonly Func<HttpMessageHandler>? _preflightHandlerFactory;
     private readonly ICorsTelemetry _telemetry;
     private readonly Func<bool> _telemetrySuppressed;
 
     /// <summary>Creates a verifier that uses the supplied client's configured handler and base address.</summary>
+    /// <remarks>For a preflighted scenario, this overload fails closed when the client has default request headers. Use the handler-factory overload when caller defaults or handler-added headers must remain on the actual request only.</remarks>
     public CorsVerifier(HttpClient client)
-        : this(client, TelemetryHost.Create(), TelemetryHost.IsSuppressed)
+        : this(client, null, TelemetryHost.Create(), TelemetryHost.IsSuppressed)
+    {
+    }
+
+    /// <summary>Creates a verifier that uses the supplied client for actual requests and a dedicated handler for generated preflights.</summary>
+    /// <param name="client">The caller-owned client used for actual requests and its base address.</param>
+    /// <param name="preflightHandlerFactory">Creates a clean handler for each generated preflight. The handler must not add caller-wide or credential headers; the verifier disposes each returned handler after the preflight completes.</param>
+    public CorsVerifier(HttpClient client, Func<HttpMessageHandler> preflightHandlerFactory)
+        : this(client, preflightHandlerFactory, TelemetryHost.Create(), TelemetryHost.IsSuppressed)
     {
     }
 
     internal CorsVerifier(HttpClient client, ICorsTelemetry telemetry, Func<bool> telemetrySuppressed)
+        : this(client, null, telemetry, telemetrySuppressed)
+    {
+    }
+
+    internal CorsVerifier(
+        HttpClient client,
+        Func<HttpMessageHandler>? preflightHandlerFactory,
+        ICorsTelemetry telemetry,
+        Func<bool> telemetrySuppressed)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _preflightHandlerFactory = preflightHandlerFactory;
         _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
         _telemetrySuppressed = telemetrySuppressed ?? throw new ArgumentNullException(nameof(telemetrySuppressed));
     }
@@ -52,11 +72,11 @@ public sealed class CorsVerifier
         if (scenario.RequiresPreflight)
         {
             preflightSent = true;
-            using var preflight = CreatePreflightRequest(scenario);
             HttpResponseMessage? response = null;
             try
             {
-                response = await _client.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                using var preflight = CreatePreflightRequest(scenario);
+                response = await SendPreflightAsync(preflight, cancellationToken).ConfigureAwait(false);
                 preflightStatusCode = response.StatusCode;
                 var preflightEvaluation = CorsHeaderEvaluator.EvaluatePreflight(response, scenario, expectation);
                 issues.AddRange(preflightEvaluation.Issues);
@@ -133,6 +153,40 @@ public sealed class CorsVerifier
         }
 
         return CreateResult(contract, false, preflightSent, preflightStatusCode, actualRequestSent, actualStatusCode, issues);
+    }
+
+    private async Task<HttpResponseMessage> SendPreflightAsync(HttpRequestMessage preflight, CancellationToken cancellationToken)
+    {
+        if (_preflightHandlerFactory is null)
+        {
+            if (_client.DefaultRequestHeaders.Any())
+            {
+                throw new InvalidOperationException(
+                    "Preflight verification cannot use a client with default request headers because they would be sent with the OPTIONS request. Supply a dedicated preflight handler factory to CorsVerifier.");
+            }
+
+            return await _client.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        }
+
+        var handler = _preflightHandlerFactory();
+        if (handler is null)
+        {
+            throw new InvalidOperationException("The preflight handler factory returned null.");
+        }
+
+        using var invoker = new HttpMessageInvoker(handler, disposeHandler: true);
+        preflight.RequestUri = ResolvePreflightUri(preflight.RequestUri);
+        return await invoker.SendAsync(preflight, cancellationToken).ConfigureAwait(false);
+    }
+
+    private Uri ResolvePreflightUri(Uri? relativeUri)
+    {
+        if (relativeUri is null || relativeUri.IsAbsoluteUri || _client.BaseAddress is null)
+        {
+            throw new InvalidOperationException("The caller-supplied HttpClient must have an absolute BaseAddress for preflight verification.");
+        }
+
+        return new Uri(_client.BaseAddress, relativeUri);
     }
 
     /// <summary>Executes the contracts in a bounded matrix in declaration order.</summary>

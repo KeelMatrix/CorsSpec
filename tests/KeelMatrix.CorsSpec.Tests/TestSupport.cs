@@ -8,11 +8,19 @@ internal sealed class RecordingHandler : HttpMessageHandler
     private readonly Func<HttpRequestMessage, HttpResponseMessage> _responseFactory;
 
     public RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
+        : this(responseFactory, null)
     {
-        _responseFactory = responseFactory;
     }
 
-    public List<HttpRequestMessage> Requests { get; } = new();
+    private RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory, List<HttpRequestMessage>? requests)
+    {
+        _responseFactory = responseFactory;
+        Requests = requests ?? new List<HttpRequestMessage>();
+    }
+
+    public List<HttpRequestMessage> Requests { get; }
+
+    public HttpMessageHandler CreateSibling() => new RecordingHandler(_responseFactory, Requests);
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -29,6 +37,27 @@ internal sealed class RecordingHandler : HttpMessageHandler
         }
 
         return clone;
+    }
+}
+
+internal sealed class HeaderAddingHandler : DelegatingHandler
+{
+    private readonly IReadOnlyList<(string Name, string Value)> _headers;
+
+    public HeaderAddingHandler(HttpMessageHandler innerHandler, params (string Name, string Value)[] headers)
+        : base(innerHandler)
+    {
+        _headers = headers;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        foreach (var (name, value) in _headers)
+        {
+            request.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        return base.SendAsync(request, cancellationToken);
     }
 }
 
