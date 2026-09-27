@@ -63,3 +63,15 @@ internal static class ResponseFactory
         }
     }
 }
+
+internal sealed class RecordingTelemetry : ICorsTelemetry
+{
+    public int ActivationCount { get; private set; }
+
+    public void TrackActivation() => ActivationCount++;
+}
+
+internal sealed class ThrowingTelemetry : ICorsTelemetry
+{
+    public void TrackActivation() => throw new InvalidOperationException("synthetic telemetry delivery failure");
+}

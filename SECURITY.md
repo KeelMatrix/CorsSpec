@@ -13,3 +13,5 @@ The latest stable package version receives security fixes. Older versions may re
 For ordinary defects or feature requests, use the public GitHub issue tracker after removing sensitive data.
 
 CorsSpec validates browser-facing method and target-path representations before invoking the caller's handler. It normalizes the six browser-standard method names, preserves custom method casing for exact allow-method evaluation, constructs preflights with `Accept: */*`, and rejects raw control characters, URI authorities/schemes, separators, and slash-prefixed root-relative Windows drive paths in relative targets; these checks do not replace authentication, authorization, CSRF, or network-security controls in the application under test.
+
+The optional activation telemetry is best-effort and excludes origins, hostnames, endpoint paths, endpoint-identifying methods, header values, credentials, response bodies, and raw diagnostics. Set `KEELMATRIX_NO_TELEMETRY=1` to suppress it.

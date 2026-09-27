@@ -20,7 +20,7 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 
 ## Invariants
 
-- The shipping library has no ASP.NET Core, test-framework, browser, or telemetry dependency.
+- The shipping library has no ASP.NET Core, test-framework, or browser dependency. It has an optional, best-effort `KeelMatrix.Telemetry` dependency for one aggregate activation signal after a response-level contract verdict; core request verification remains caller-owned.
 - `Origin` is never a destination. Only the caller's `HttpClient` performs I/O.
 - Allowed preflight verdicts require both a successful HTTP status and browser-relevant headers; actual-response status is never sufficient by itself.
 - Generated preflights include exactly `Accept: */*`; ordinary simple requests remain unchanged.

@@ -1,6 +1,6 @@
 # CorsSpec platform support
 
-This document defines the verified platform boundary for the `KeelMatrix.CorsSpec` 0.1.0 package. The package targets `.NET 8` (`net8.0`) and uses the caller-supplied `HttpClient`; it has no OS-specific filesystem or background-network behavior.
+This document defines the verified platform boundary for the `KeelMatrix.CorsSpec` 0.1.0 package. The package targets `.NET 8` (`net8.0`) and uses the caller-supplied `HttpClient`; core verification has no OS-specific filesystem or independent network behavior. The optional shared activation telemetry is best-effort, opt-out, and suppressed in validation runs; it does not change the supported runtime boundary.
 
 ## Verified support
 
@@ -16,4 +16,4 @@ The request contract is platform-independent: browser-standard method names are 
 
 ## Consumer boundary
 
-The package is intended for `.NET 8` test projects and a caller-selected ASP.NET Core test host. CorsSpec does not start the host, contact the origin named in a scenario, or require browser automation. A consumer may supply an externally routed `HttpClient`, but that network behavior belongs to the consumer and is not platform evidence for CorsSpec itself.
+The package is intended for `.NET 8` test projects and a caller-selected ASP.NET Core test host. CorsSpec does not start the host, contact the origin named in a scenario, or require browser automation. A consumer may supply an externally routed `HttpClient`, but that network behavior belongs to the consumer and is not platform evidence for CorsSpec itself. The only package-owned process boundary beyond core verification is the optional aggregate activation signal described in [PRIVACY.md](../PRIVACY.md).

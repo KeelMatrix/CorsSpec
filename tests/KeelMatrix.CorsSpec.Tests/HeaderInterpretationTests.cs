@@ -6,6 +6,108 @@ namespace KeelMatrix.CorsSpec.Tests;
 
 public sealed class HeaderInterpretationTests
 {
+    [Theory]
+    [InlineData(" https://app.example ", true)]
+    [InlineData("\thttps://app.example\t", true)]
+    [InlineData("\u00a0https://app.example\u00a0", false)]
+    [InlineData("\u2003https://app.example\u2003", false)]
+    [InlineData("\u0000https://app.example\u0000", false)]
+    [InlineData("\rhttps://app.example\r", false)]
+    [InlineData("\nhttps://app.example\n", false)]
+    [InlineData("\u0085https://app.example\u0085", false)]
+    public async Task Exact_origin_accepts_only_http_ows_wrapping(string responseOrigin, bool expectedSuccess)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: "Origin"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed(requireVaryOrigin: true)));
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+    }
+
+    [Theory]
+    [InlineData(" * ", true)]
+    [InlineData("\t*\t", true)]
+    [InlineData("\u00a0*\u00a0", false)]
+    [InlineData("\u2003*\u2003", false)]
+    [InlineData("\u0000*\u0000", false)]
+    [InlineData("\r*\r", false)]
+    [InlineData("\n*\n", false)]
+    [InlineData("\u0085*\u0085", false)]
+    public async Task Wildcard_origin_accepts_only_http_ows_wrapping(string responseOrigin, bool expectedSuccess)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed(allowWildcardOrigin: true)));
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+    }
+
+    [Theory]
+    [InlineData("\u00a0https://app.example\u00a0")]
+    [InlineData("\rhttps://app.example\r")]
+    [InlineData("\u0085https://app.example\u0085")]
+    public async Task Credentialed_exact_origin_rejects_non_ows_boundaries(string responseOrigin)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(
+            origin: responseOrigin,
+            credentials: true,
+            vary: "Origin"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
+            CorsExpectation.Allowed(requireVaryOrigin: true)));
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind is CorsFailureKind.MissingOrMismatchedAllowOrigin or CorsFailureKind.CredentialsMismatch);
+    }
+
+    [Theory]
+    [InlineData(" Origin ", true)]
+    [InlineData("\tOrigin\t", true)]
+    [InlineData("\u00a0Origin\u00a0", false)]
+    [InlineData("Origin,\u00a0", false)]
+    [InlineData("Origin,\u0000Other", false)]
+    [InlineData("Origin,\u0085Other", false)]
+    public async Task Vary_origin_requires_a_valid_http_token_list(string vary, bool expectedSuccess)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: vary));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed(requireVaryOrigin: true)));
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+    }
+
+    [Theory]
+    [InlineData("\u00a0https://app.example\u00a0")]
+    [InlineData("\u2003https://app.example\u2003")]
+    [InlineData("\u0000https://app.example\u0000")]
+    [InlineData("\u0085https://app.example\u0085")]
+    public async Task Malformed_preflight_origin_never_sends_the_actual_request(string responseOrigin)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: "Origin"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed(requireVaryOrigin: true)));
+
+        Assert.False(result.IsSuccess);
+        Assert.True(result.PreflightSent);
+        Assert.False(result.ActualRequestSent);
+        Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Options, handler.Requests[0].Method);
+    }
+
     [Fact]
     public async Task A_success_status_does_not_hide_a_rejected_preflight_method()
     {

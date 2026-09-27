@@ -15,6 +15,8 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 - Rejects raw C0 and `DEL` target-path controls before caller I/O while allowing intentionally percent-encoded path data.
 - Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata against the checked-out candidate SHA; the package-consumer smoke covers simple and custom preflight behavior on Windows, Linux, and macOS.
 - Builds browser-style preflights with `Accept: */*`, preserves exact casing for custom method allow-list matching, and permits preflighted `GET`, `HEAD`, and `POST` scenarios without requiring an allow-method token while still rejecting malformed lists.
+- Accepts only HTTP optional whitespace (`SP` and `HTAB`) around CORS response metadata and fails closed on Unicode whitespace, invalid controls, obs-text boundaries, and malformed `Vary: Origin` lists.
+- Provides one optional, best-effort aggregate activation signal after a meaningful response-level contract verdict, with matrix executions aggregated across cells, no recurring heartbeat, no contract data fields, and `KEELMATRIX_NO_TELEMETRY=1` suppression.
 
 ## [0.1.0] - 2026-09-24
 

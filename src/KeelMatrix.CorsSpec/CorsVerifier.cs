@@ -6,17 +6,34 @@ namespace KeelMatrix.CorsSpec;
 public sealed class CorsVerifier
 {
     private readonly HttpClient _client;
+    private readonly ICorsTelemetry _telemetry;
+    private readonly Func<bool> _telemetrySuppressed;
 
     /// <summary>Creates a verifier that uses the supplied client's configured handler and base address.</summary>
     public CorsVerifier(HttpClient client)
+        : this(client, TelemetryHost.Create(), TelemetryHost.IsSuppressed)
+    {
+    }
+
+    internal CorsVerifier(HttpClient client, ICorsTelemetry telemetry, Func<bool> telemetrySuppressed)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
+        _telemetrySuppressed = telemetrySuppressed ?? throw new ArgumentNullException(nameof(telemetrySuppressed));
     }
 
     /// <summary>Executes one contract and evaluates browser-relevant response headers.</summary>
     public async Task<CorsVerificationResult> VerifyAsync(CorsContract contract, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contract);
+
+        var result = await VerifyCoreAsync(contract, cancellationToken).ConfigureAwait(false);
+        TrackActivationIfVerdict(result);
+        return result;
+    }
+
+    private async Task<CorsVerificationResult> VerifyCoreAsync(CorsContract contract, CancellationToken cancellationToken)
+    {
 
         var localIssues = CorsHeaderEvaluator.ValidateContract(contract);
         if (localIssues.Count != 0)
@@ -125,10 +142,31 @@ public sealed class CorsVerifier
         var results = new List<CorsVerificationResult>(matrix.Contracts.Count);
         foreach (var contract in matrix.Contracts)
         {
-            results.Add(await VerifyAsync(contract, cancellationToken).ConfigureAwait(false));
+            results.Add(await VerifyCoreAsync(contract, cancellationToken).ConfigureAwait(false));
+        }
+
+        if (results.Any(static result => result.HasVerdict))
+        {
+            TrackActivation();
         }
 
         return results.AsReadOnly();
+    }
+
+    private void TrackActivationIfVerdict(CorsVerificationResult result)
+    {
+        if (result.HasVerdict)
+        {
+            TrackActivation();
+        }
+    }
+
+    private void TrackActivation()
+    {
+        if (!_telemetrySuppressed())
+        {
+            TelemetryHost.TrackActivation(_telemetry);
+        }
     }
 
     internal static HttpRequestMessage CreatePreflightRequest(CorsScenario scenario)
@@ -281,7 +319,7 @@ internal static class CorsHeaderEvaluator
             return false;
         }
 
-        var value = values[0].Trim();
+        var value = TrimHttpOws(values[0]);
         if (value == "*" && !scenario.UseCredentials)
         {
             if (expectation.IsAllowed && !expectation.AllowWildcardOrigin)
@@ -319,8 +357,7 @@ internal static class CorsHeaderEvaluator
 
         if (expectation.RequireVaryOrigin && originPermission && !IsWildcardOrigin(response))
         {
-            var vary = GetValues(response, "Vary").SelectMany(static value => value.Split(','));
-            if (!vary.Any(static value => value.Trim().Equals("Origin", StringComparison.OrdinalIgnoreCase)))
+            if (!HasVaryOrigin(response))
             {
                 issues.Add(new CorsIssue(CorsFailureKind.MissingVaryOrigin, "The exact-origin response did not include Vary: Origin."));
             }
@@ -370,7 +407,7 @@ internal static class CorsHeaderEvaluator
     }
 
     private static bool IsWildcardOrigin(HttpResponseMessage response) =>
-        GetValues(response, AllowOrigin).Count == 1 && GetValues(response, AllowOrigin)[0].Trim() == "*";
+        GetValues(response, AllowOrigin).Count == 1 && TrimHttpOws(GetValues(response, AllowOrigin)[0]) == "*";
 
     private static bool HasToken(HttpResponseMessage response, string headerName, string expected, bool allowWildcard)
     {
@@ -426,43 +463,11 @@ internal static class CorsHeaderEvaluator
     }
 
     private static bool TryParseCorsList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens)
-    {
-        var parsed = new List<string>();
-        foreach (var value in values)
-        {
-            var memberStart = 0;
-            for (var index = 0; index <= value.Length; index++)
-            {
-                if (index != value.Length && value[index] != ',')
-                {
-                    continue;
-                }
-
-                var member = TrimOws(value[memberStart..index]);
-                if (!IsHttpToken(member))
-                {
-                    tokens = Array.Empty<string>();
-                    return false;
-                }
-
-                parsed.Add(member);
-                memberStart = index + 1;
-            }
-        }
-
-        if (parsed.Count == 0 || parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal))
-        {
-            tokens = Array.Empty<string>();
-            return false;
-        }
-
-        tokens = parsed;
-        return true;
-    }
+        => TryParseHttpTokenList(values, out tokens);
 
     private static bool TryParseDeltaSeconds(string value, out long seconds)
     {
-        value = TrimOws(value);
+        value = TrimHttpOws(value);
         if (value.Length == 0)
         {
             seconds = 0;
@@ -491,7 +496,17 @@ internal static class CorsHeaderEvaluator
         return true;
     }
 
-    private static string TrimOws(string value)
+    private static bool HasVaryOrigin(HttpResponseMessage response)
+    {
+        if (!TryParseHttpTokenList(GetValues(response, "Vary"), out var values))
+        {
+            return false;
+        }
+
+        return values.Any(static value => value.Equals("Origin", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string TrimHttpOws(string value)
     {
         var start = 0;
         var end = value.Length;
@@ -506,6 +521,41 @@ internal static class CorsHeaderEvaluator
         }
 
         return value[start..end];
+    }
+
+    private static bool TryParseHttpTokenList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens)
+    {
+        var parsed = new List<string>();
+        foreach (var value in values)
+        {
+            var memberStart = 0;
+            for (var index = 0; index <= value.Length; index++)
+            {
+                if (index != value.Length && value[index] != ',')
+                {
+                    continue;
+                }
+
+                var member = TrimHttpOws(value[memberStart..index]);
+                if (!IsHttpToken(member))
+                {
+                    tokens = Array.Empty<string>();
+                    return false;
+                }
+
+                parsed.Add(member);
+                memberStart = index + 1;
+            }
+        }
+
+        if (parsed.Count == 0 || parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal))
+        {
+            tokens = Array.Empty<string>();
+            return false;
+        }
+
+        tokens = parsed;
+        return true;
     }
 
     private static bool IsHttpToken(string value)

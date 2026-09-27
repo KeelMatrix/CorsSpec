@@ -23,6 +23,8 @@ public sealed class CorsVerificationResult
         Issues = Array.AsReadOnly(issues.ToArray());
     }
 
+    internal bool HasVerdict => PreflightStatusCode is not null || ActualStatusCode is not null;
+
     /// <summary>Gets the contract that was evaluated.</summary>
     public CorsContract Contract { get; }
 
