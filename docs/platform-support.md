@@ -12,7 +12,7 @@ This document defines the verified platform boundary for the `KeelMatrix.CorsSpe
 
 The support claim depends on all three CI legs remaining green. The validation scripts use platform-native path joins, isolated temporary/cache paths, and the same package-consumer and ASP.NET Core evidence on each runner.
 
-The request contract is platform-independent: browser-standard method names are normalized to uppercase, custom method casing is preserved, and raw C0/`DEL` path controls are rejected before the caller's handler on every supported platform.
+The request contract is platform-independent: browser-standard method names are normalized to uppercase, custom method casing is preserved for exact allow-method matching, generated preflights carry `Accept: */*`, preflighted `GET`/`HEAD`/`POST` requests do not require an allow-method token when present metadata is valid, and raw C0/`DEL` path controls are rejected before the caller's handler on every supported platform.
 
 ## Consumer boundary
 

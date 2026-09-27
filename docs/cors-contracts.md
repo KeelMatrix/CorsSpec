@@ -7,10 +7,11 @@
 Before classification and request construction, the case-insensitive browser methods `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT` are normalized to uppercase. `GET`, `HEAD`, and `POST` scenarios with no requested header name are executed as one actual request. Other methods or requested headers first receive an `OPTIONS` request with:
 
 - `Origin` set to the scenario origin;
-- `Access-Control-Request-Method` set to the normalized scenario method;
+- `Accept: */*` to match browser preflight construction;
+- `Access-Control-Request-Method` set to the normalized browser-standard method or the exact-cased custom method;
 - `Access-Control-Request-Headers` set to the normalized requested header names.
 
-For an allowed preflight, CorsSpec requires a 2xx response and checks the allow-origin, allow-methods, allow-headers, credentials, max-age when asserted, and required `Vary: Origin` behavior, then sends the actual request. A non-2xx response fails an allowed preflight even when its CORS headers are otherwise permissive. For a denied preflight, the actual request is not sent when the preflight blocks access, matching browser behavior.
+For an allowed preflight, CorsSpec requires a 2xx response and checks the allow-origin, allow-methods, allow-headers, credentials, max-age when asserted, and required `Vary: Origin` behavior, then sends the actual request. A non-2xx response fails an allowed preflight even when its CORS headers are otherwise permissive. When a preflight is caused by requested headers, the safelisted methods `GET`, `HEAD`, and `POST` do not require a matching `Access-Control-Allow-Methods` token, but a present malformed method list still fails closed. Other methods require an exact allow-method match; normalized browser-standard names use their normalized form, while custom method tokens are case-sensitive. For a non-credentialed contract, a valid method wildcard is also accepted. For a denied preflight, the actual request is not sent when the preflight blocks access, matching browser behavior.
 
 Other valid method names preserve the caller's casing because custom methods remain case-sensitive. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods are rejected before a request is created.
 

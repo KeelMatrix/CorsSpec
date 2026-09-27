@@ -33,6 +33,55 @@ public sealed class RequestGenerationTests
         Assert.Equal(HttpMethod.Get, request.Method);
         Assert.Equal("/orders", request.RequestUri!.AbsolutePath);
         Assert.Equal("https://app.example", request.Headers.GetValues("Origin").Single());
+        Assert.Empty(request.Headers.Accept);
+    }
+
+    [Theory]
+    [InlineData("PATCH", false, false)]
+    [InlineData("PATCH", true, false)]
+    [InlineData("PATCH", false, true)]
+    [InlineData("PATCH", true, true)]
+    [InlineData("GET", true, false)]
+    [InlineData("GET", true, true)]
+    [InlineData("HEAD", true, false)]
+    [InlineData("POST", true, true)]
+    public async Task Every_preflight_carries_exactly_the_browser_accept_value(
+        string method,
+        bool includeRequestedHeader,
+        bool useCredentials)
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.Method == HttpMethod.Options)
+            {
+                var accept = request.Headers.Accept.ToArray();
+                if (accept.Length != 1 || accept[0].MediaType != "*/*" || accept[0].Quality is not null)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NotAcceptable);
+                }
+            }
+
+            return ResponseFactory.Cors(
+                methods: method,
+                headers: includeRequestedHeader ? "X-Trace" : null,
+                credentials: useCredentials);
+        });
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario(
+                "/orders",
+                "https://app.example",
+                new HttpMethod(method),
+                includeRequestedHeader ? new[] { "X-Trace" } : null,
+                useCredentials),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        var preflight = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Options);
+        var accept = Assert.Single(preflight.Headers.Accept);
+        Assert.Equal("*/*", accept.MediaType);
+        Assert.Null(accept.Quality);
     }
 
     [Fact]

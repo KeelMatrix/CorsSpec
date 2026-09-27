@@ -23,6 +23,128 @@ public sealed class HeaderInterpretationTests
     }
 
     [Theory]
+    [InlineData("pAtCh", "pAtCh", true)]
+    [InlineData("pAtCh", "PATCH", false)]
+    [InlineData("pAtCh", "patch", false)]
+    [InlineData("pAtCh", "PaTcH", false)]
+    [InlineData("x-CuStOm", "x-CuStOm", true)]
+    [InlineData("x-CuStOm", "X-CUSTOM", false)]
+    public async Task Custom_method_allow_list_matching_requires_exact_casing(
+        string requestedMethod,
+        string allowedMethod,
+        bool expectedSuccess)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: allowedMethod, headers: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", new HttpMethod(requestedMethod)),
+            CorsExpectation.Allowed()));
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+        if (expectedSuccess)
+        {
+            Assert.True(result.ActualRequestSent);
+        }
+        else
+        {
+            Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MethodRejected);
+            Assert.False(result.ActualRequestSent);
+        }
+    }
+
+    [Theory]
+    [InlineData("GET", false, null)]
+    [InlineData("HEAD", false, null)]
+    [InlineData("POST", false, null)]
+    [InlineData("GET", true, null)]
+    [InlineData("HEAD", true, null)]
+    [InlineData("POST", true, null)]
+    [InlineData("GET", false, "DELETE")]
+    [InlineData("HEAD", false, "DELETE")]
+    [InlineData("POST", false, "DELETE")]
+    [InlineData("GET", true, "DELETE")]
+    [InlineData("HEAD", true, "DELETE")]
+    [InlineData("POST", true, "DELETE")]
+    public async Task Safelisted_methods_do_not_require_a_matching_allow_methods_entry(
+        string method,
+        bool useCredentials,
+        string? allowMethods)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(
+            methods: allowMethods,
+            headers: "X-Trace",
+            credentials: useCredentials));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), new[] { "X-Trace" }, useCredentials),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.True(result.PreflightSent);
+        Assert.True(result.ActualRequestSent);
+    }
+
+    [Theory]
+    [InlineData("GET", "DELETE,")]
+    [InlineData("HEAD", "DE LETE")]
+    [InlineData("POST", "DELETE,\u001f")]
+    public async Task Malformed_present_allow_methods_still_fail_for_safelisted_methods(string method, string allowMethods)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: allowMethods, headers: "X-Trace"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), new[] { "X-Trace" }),
+            CorsExpectation.Allowed()));
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MethodRejected);
+        Assert.False(result.ActualRequestSent);
+    }
+
+    [Fact]
+    public async Task Non_safelisted_method_still_requires_an_exact_allow_methods_entry()
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: null, headers: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed()));
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MethodRejected);
+        Assert.False(result.ActualRequestSent);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task Safelisted_method_with_requested_header_respects_credentialed_header_wildcard_rules(
+        bool useCredentials,
+        bool expectedSuccess)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(
+            methods: null,
+            headers: "*",
+            credentials: useCredentials));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace" }, useCredentials),
+            CorsExpectation.Allowed()));
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+        if (!expectedSuccess)
+        {
+            Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.RequestedHeaderRejected);
+            Assert.False(result.ActualRequestSent);
+        }
+    }
+
+    [Theory]
     [InlineData(199, false)]
     [InlineData(200, true)]
     [InlineData(204, true)]

@@ -14,6 +14,7 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 - Normalizes the browser-standard method names `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT` to uppercase while preserving custom method casing.
 - Rejects raw C0 and `DEL` target-path controls before caller I/O while allowing intentionally percent-encoded path data.
 - Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata against the checked-out candidate SHA; the package-consumer smoke covers simple and custom preflight behavior on Windows, Linux, and macOS.
+- Builds browser-style preflights with `Accept: */*`, preserves exact casing for custom method allow-list matching, and permits preflighted `GET`, `HEAD`, and `POST` scenarios without requiring an allow-method token while still rejecting malformed lists.
 
 ## [0.1.0] - 2026-09-24
 

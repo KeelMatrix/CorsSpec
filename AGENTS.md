@@ -23,6 +23,8 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 - The shipping library has no ASP.NET Core, test-framework, browser, or telemetry dependency.
 - `Origin` is never a destination. Only the caller's `HttpClient` performs I/O.
 - Allowed preflight verdicts require both a successful HTTP status and browser-relevant headers; actual-response status is never sufficient by itself.
+- Generated preflights include exactly `Accept: */*`; ordinary simple requests remain unchanged.
+- For preflights caused by requested headers, valid `GET`/`HEAD`/`POST` methods do not require an `Access-Control-Allow-Methods` match; malformed present method lists fail closed, non-safelisted methods require an exact match, standard method names use normalized matching, and custom method tokens are case-sensitive.
 - Scenario header names do not carry values; every requested caller-added header name conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`.
 - Browser-standard method names (`DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT`) are normalized to uppercase before simple-method classification and request construction; custom method casing is preserved. Browser-forbidden methods and conditional override header names are rejected because their browser semantics are not modeled.
 - Scenario targets remain relative application paths; raw C0/`DEL` controls, URI authorities, schemes, backslashes, UNC/device paths, and root-relative Windows paths are rejected before I/O.

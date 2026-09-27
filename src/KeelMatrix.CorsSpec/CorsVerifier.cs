@@ -135,6 +135,7 @@ public sealed class CorsVerifier
     {
         var request = new HttpRequestMessage(HttpMethod.Options, scenario.Path);
         AddOrigin(request, scenario.Origin);
+        request.Headers.TryAddWithoutValidation("Accept", "*/*");
         request.Headers.TryAddWithoutValidation("Access-Control-Request-Method", scenario.Method.Method);
         if (scenario.RequestedHeaders.Count != 0)
         {
@@ -221,7 +222,7 @@ internal static class CorsHeaderEvaluator
     {
         var issues = new List<CorsIssue>();
         var originPermission = EvaluateOrigin(response, scenario, expectation, issues);
-        var methodPermission = HasToken(response, AllowMethods, scenario.Method.Method, !scenario.UseCredentials);
+        var methodPermission = HasMethodPermission(response, scenario);
         var headersPermission = scenario.RequestedHeaders.All(header => HasToken(response, AllowHeaders, header, !scenario.UseCredentials));
         var statusPermission = response.IsSuccessStatusCode;
 
@@ -387,12 +388,45 @@ internal static class CorsHeaderEvaluator
             (allowWildcard && values.Contains("*", StringComparer.Ordinal) && !IsCorsNonWildcardName(headerName, expected));
     }
 
+    private static bool HasMethodPermission(HttpResponseMessage response, CorsScenario scenario)
+    {
+        var rawValues = GetValues(response, AllowMethods);
+        if (rawValues.Count == 0)
+        {
+            return CorsScenario.IsSimpleMethod(scenario.Method);
+        }
+
+        if (!TryParseCorsList(rawValues, out var values))
+        {
+            return false;
+        }
+
+        if (CorsScenario.IsSimpleMethod(scenario.Method))
+        {
+            return true;
+        }
+
+        var comparison = IsBrowserStandardMethod(scenario.Method)
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return values.Any(value => value.Equals(scenario.Method.Method, comparison)) ||
+            (!scenario.UseCredentials && values.Contains("*", StringComparer.Ordinal));
+    }
+
+    private static bool IsBrowserStandardMethod(HttpMethod method) =>
+        method.Method is "DELETE" or "GET" or "HEAD" or "OPTIONS" or "POST" or "PUT";
+
     private static bool IsCorsSafelistedResponseHeader(string expected) =>
         CorsSafelistedResponseHeaders.Any(header => header.Equals(expected, StringComparison.OrdinalIgnoreCase));
 
     private static bool TryParseCorsList(HttpResponseMessage response, string headerName, out IReadOnlyList<string> tokens)
     {
-        var values = GetValues(response, headerName);
+        return TryParseCorsList(GetValues(response, headerName), out tokens);
+    }
+
+    private static bool TryParseCorsList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens)
+    {
         var parsed = new List<string>();
         foreach (var value in values)
         {

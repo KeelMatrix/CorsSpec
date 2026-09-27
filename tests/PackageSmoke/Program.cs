@@ -18,6 +18,17 @@ builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy
     .WithHeaders("X-Trace")));
 var app = builder.Build();
 app.UseRouting();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Method == HttpMethod.Options.Method &&
+        (context.Request.Headers.Accept.Count != 1 || context.Request.Headers.Accept[0] != "*/*"))
+    {
+        context.Response.StatusCode = StatusCodes.Status406NotAcceptable;
+        return;
+    }
+
+    await next();
+});
 app.UseCors("smoke");
 var patchRequests = 0;
 app.Use(async (context, next) =>

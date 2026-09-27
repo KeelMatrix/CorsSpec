@@ -12,4 +12,4 @@ The latest stable package version receives security fixes. Older versions may re
 
 For ordinary defects or feature requests, use the public GitHub issue tracker after removing sensitive data.
 
-CorsSpec validates browser-facing method and target-path representations before invoking the caller's handler. It normalizes the six browser-standard method names and rejects raw control characters in relative paths; these checks do not replace authentication, authorization, CSRF, or network-security controls in the application under test.
+CorsSpec validates browser-facing method and target-path representations before invoking the caller's handler. It normalizes the six browser-standard method names, preserves custom method casing for exact allow-method evaluation, constructs preflights with `Accept: */*`, and rejects raw control characters in relative paths; these checks do not replace authentication, authorization, CSRF, or network-security controls in the application under test.

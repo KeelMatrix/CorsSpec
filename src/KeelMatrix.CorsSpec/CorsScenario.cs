@@ -8,7 +8,7 @@ public sealed class CorsScenario
     /// <summary>Creates a scenario for a relative application path.</summary>
     /// <param name="path">The application path sent through the supplied <see cref="HttpClient"/>.</param>
     /// <param name="origin">The origin metadata placed on the request; it is never contacted.</param>
-    /// <param name="method">The actual request method. Browser-standard names are normalized to uppercase; custom method casing is preserved.</param>
+    /// <param name="method">The actual request method. Browser-standard names are normalized to uppercase; custom method casing is preserved for exact allow-method matching.</param>
     /// <param name="requestedHeaders">Header names that a browser would request permission to send. Values are not modeled, so every name conservatively forces a preflight; include caller-added default and per-request headers.</param>
     /// <param name="useCredentials">Whether the browser contract expects credentialed CORS permission.</param>
     public CorsScenario(
@@ -32,7 +32,7 @@ public sealed class CorsScenario
     /// <summary>Gets the request origin metadata.</summary>
     public string Origin { get; }
 
-    /// <summary>Gets the actual request method. Browser-standard names use their uppercase wire representation.</summary>
+    /// <summary>Gets the actual request method. Browser-standard names use their uppercase wire representation; custom method casing is preserved for exact allow-method matching.</summary>
     public HttpMethod Method { get; }
 
     /// <summary>Gets the normalized names of headers requested by the preflight. Every requested name conservatively forces a preflight because values are not modeled.</summary>
