@@ -46,6 +46,7 @@ KeelMatrix.CorsSpec.CorsVerificationResult.PreflightStatusCode.get -> System.Net
 KeelMatrix.CorsSpec.CorsVerificationResult.Summary.get -> string!
 KeelMatrix.CorsSpec.CorsVerifier
 KeelMatrix.CorsSpec.CorsVerifier.CorsVerifier(System.Net.Http.HttpClient! client) -> void
+KeelMatrix.CorsSpec.CorsVerifier.CorsVerifier(System.Net.Http.HttpClient! client, System.Func<System.Net.Http.HttpMessageHandler!>! preflightHandlerFactory) -> void
 KeelMatrix.CorsSpec.CorsVerifier.VerifyAsync(KeelMatrix.CorsSpec.CorsContract! contract, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<KeelMatrix.CorsSpec.CorsVerificationResult!>!
 KeelMatrix.CorsSpec.CorsVerifier.VerifyMatrixAsync(KeelMatrix.CorsSpec.CorsMatrix! matrix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsVerificationResult!>!>!
 static KeelMatrix.CorsSpec.CorsExpectation.Allowed(bool allowWildcardOrigin = false, System.Collections.Generic.IEnumerable<string!>? expectedExposedHeaders = null, System.TimeSpan? expectedMaxAge = null, bool requireVaryOrigin = false) -> KeelMatrix.CorsSpec.CorsExpectation!

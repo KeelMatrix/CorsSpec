@@ -48,23 +48,25 @@ public sealed class ValidationTests
 
     public static IEnumerable<object[]> RootRelativeWindowsDrivePathCases()
     {
+        var suffixes = new[]
+        {
+            "",
+            "/",
+            "?status=open",
+            "#fragment",
+            "orders",
+            "orders/nested",
+            "orders?status=open",
+            "orders#fragment",
+        };
+
         foreach (var drive in Enumerable.Range('A', 'Z' - 'A' + 1).Select(static value => (char)value))
         {
-            yield return new object[] { $"/{drive}:" };
-            yield return new object[] { $"/{char.ToLowerInvariant(drive)}:" };
-            yield return new object[] { $"/{drive}:/" };
-            yield return new object[] { $"/{char.ToLowerInvariant(drive)}:/" };
-        }
-
-        foreach (var path in new[]
-        {
-            "/C:/orders",
-            "/c:/orders?status=open",
-            "/C:?status=open",
-            "/C:/orders#fragment",
-        })
-        {
-            yield return new object[] { path };
+            foreach (var suffix in suffixes)
+            {
+                yield return new object[] { $"/{drive}:{suffix}" };
+                yield return new object[] { $"/{char.ToLowerInvariant(drive)}:{suffix}" };
+            }
         }
     }
 
@@ -209,8 +211,14 @@ public sealed class ValidationTests
             "redirect?next=https://external.example/orders",
             "/redirect?next=https://",
             "/redirect?next=://external.example/orders",
+            "/route?next=/C:foo",
+            "/route?next=/c:orders",
+            "/route?next=/C:orders?x=1",
+            "/route#next=/C:foo",
             "/redirect?next=https://external.example/orders&tail=1",
             "/redirect?next=https%3A%2F%2Fexternal.example/orders",
+            "/route/%2FC%3Aorders",
+            "/route?next=%2FC%3Aorders",
             "/redirect#next=https://external.example/orders",
             "redirect#next=https://external.example/orders",
         })

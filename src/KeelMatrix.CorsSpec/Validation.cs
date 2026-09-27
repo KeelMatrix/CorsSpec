@@ -39,8 +39,7 @@ internal static class Validation
         path.Length >= 3 &&
         path[0] == '/' &&
         ((path[1] >= 'A' && path[1] <= 'Z') || (path[1] >= 'a' && path[1] <= 'z')) &&
-        path[2] == ':' &&
-        (path.Length == 3 || path[3] is '/' or '?' or '#');
+        path[2] == ':';
 
     public static HttpMethod RequireMethod(HttpMethod method)
     {
