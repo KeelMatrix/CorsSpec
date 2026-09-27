@@ -43,6 +43,39 @@ public sealed class ValidationTests
         Assert.Empty(handler.Requests);
     }
 
+    public static IEnumerable<object[]> RootRelativeWindowsDrivePathCases()
+    {
+        foreach (var drive in Enumerable.Range('A', 'Z' - 'A' + 1).Select(static value => (char)value))
+        {
+            yield return new object[] { $"/{drive}:" };
+            yield return new object[] { $"/{char.ToLowerInvariant(drive)}:" };
+            yield return new object[] { $"/{drive}:/" };
+            yield return new object[] { $"/{char.ToLowerInvariant(drive)}:/" };
+        }
+
+        foreach (var path in new[]
+        {
+            "/C:/orders",
+            "/c:/orders?status=open",
+            "/C:?status=open",
+            "/C:/orders#fragment",
+        })
+        {
+            yield return new object[] { path };
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RootRelativeWindowsDrivePathCases))]
+    public void Scenario_rejects_root_relative_windows_drive_paths_before_uri_construction_and_io(string path)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
+        Assert.Empty(handler.Requests);
+    }
+
     [Theory]
     [InlineData("CONNECT")]
     [InlineData("connect")]

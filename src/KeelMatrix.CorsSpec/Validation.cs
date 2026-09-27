@@ -11,7 +11,8 @@ internal static class Validation
             throw new ArgumentException("The target path cannot contain raw control characters.", nameof(path));
         }
 
-        if (path.Contains('\\') ||
+        if (IsRootRelativeWindowsDrivePath(path) ||
+            path.Contains('\\') ||
             path.StartsWith("//", StringComparison.Ordinal) ||
             path.Contains("://", StringComparison.Ordinal) ||
             System.Text.RegularExpressions.Regex.IsMatch(path, "^[A-Za-z][A-Za-z0-9+.-]*:"))
@@ -34,6 +35,13 @@ internal static class Validation
 
         return path;
     }
+
+    private static bool IsRootRelativeWindowsDrivePath(string path) =>
+        path.Length >= 3 &&
+        path[0] == '/' &&
+        ((path[1] >= 'A' && path[1] <= 'Z') || (path[1] >= 'a' && path[1] <= 'z')) &&
+        path[2] == ':' &&
+        (path.Length == 3 || path[3] is '/' or '?' or '#');
 
     public static HttpMethod RequireMethod(HttpMethod method)
     {

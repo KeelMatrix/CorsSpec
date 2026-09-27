@@ -27,7 +27,7 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 - For preflights caused by requested headers, valid `GET`/`HEAD`/`POST` methods do not require an `Access-Control-Allow-Methods` match; malformed present method lists fail closed, non-safelisted methods require an exact match, standard method names use normalized matching, and custom method tokens are case-sensitive.
 - Scenario header names do not carry values; every requested caller-added header name conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`.
 - Browser-standard method names (`DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT`) are normalized to uppercase before simple-method classification and request construction; custom method casing is preserved. Browser-forbidden methods and conditional override header names are rejected because their browser semantics are not modeled.
-- Scenario targets remain relative application paths; raw C0/`DEL` controls, URI authorities, schemes, backslashes, UNC/device paths, and root-relative Windows paths are rejected before I/O.
+- Scenario targets remain relative application paths; raw C0/`DEL` controls, URI authorities, schemes, backslashes, UNC/device paths, and slash-prefixed root-relative Windows drive paths are rejected before I/O.
 - Response exposure honors the seven browser CORS-safelisted response headers, and malformed CORS list, credential, or max-age metadata never grants permission.
 - `Set-Cookie` and `Set-Cookie2` are forbidden response-header expectations and fail before I/O.
 - Diagnostics never copy response bodies, cookies, authorization values, bearer tokens, or arbitrary response headers.
