@@ -78,4 +78,32 @@ public sealed class RequestGenerationTests
         Assert.True(result.IsSuccess, result.Summary);
         Assert.Equal("https://service.test", handler.Requests.Single().RequestUri!.GetLeftPart(UriPartial.Authority));
     }
+
+    [Theory]
+    [InlineData("Accept", "text/html")]
+    [InlineData("Accept", "text/html\u001f")]
+    [InlineData("Accept-Language", "en-US, en;q=0.9")]
+    [InlineData("Accept-Language", "en_US")]
+    [InlineData("Content-Language", "en-US")]
+    [InlineData("Content-Language", "en_US")]
+    [InlineData("Content-Type", "text/plain")]
+    [InlineData("Content-Type", "application/json")]
+    [InlineData("Range", "bytes=0-99")]
+    public async Task Value_sensitive_caller_headers_always_use_a_conservative_preflight(string header, string value)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: "GET", headers: header)
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        client.DefaultRequestHeaders.TryAddWithoutValidation(header, value);
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.True(result.PreflightSent);
+        Assert.Equal(HttpMethod.Options, handler.Requests[0].Method);
+        Assert.Equal(2, handler.Requests.Count);
+    }
 }

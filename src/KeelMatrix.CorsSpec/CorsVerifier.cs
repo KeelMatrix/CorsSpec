@@ -1,4 +1,5 @@
 using System.Net;
+
 namespace KeelMatrix.CorsSpec;
 
 /// <summary>Executes CORS contracts through a caller-supplied <see cref="HttpClient"/>.</summary>
@@ -178,6 +179,16 @@ internal static class CorsHeaderEvaluator
     private const string AllowCredentials = "Access-Control-Allow-Credentials";
     private const string ExposeHeaders = "Access-Control-Expose-Headers";
     private const string MaxAge = "Access-Control-Max-Age";
+    private static readonly string[] CorsSafelistedResponseHeaders =
+    [
+        "Cache-Control",
+        "Content-Language",
+        "Content-Length",
+        "Content-Type",
+        "Expires",
+        "Last-Modified",
+        "Pragma"
+    ];
 
     public static IReadOnlyList<CorsIssue> ValidateContract(CorsContract contract)
     {
@@ -322,7 +333,9 @@ internal static class CorsHeaderEvaluator
             return;
         }
 
-        if (expectation.ExpectedExposedHeaders.Any(header => !HasToken(response, ExposeHeaders, header, !scenario.UseCredentials)))
+        if (expectation.ExpectedExposedHeaders.Any(header =>
+            !IsCorsSafelistedResponseHeader(header) &&
+            !HasToken(response, ExposeHeaders, header, !scenario.UseCredentials)))
         {
             issues.Add(new CorsIssue(CorsFailureKind.ExposedHeadersMismatch, "The response did not expose every asserted response header."));
         }
@@ -336,7 +349,7 @@ internal static class CorsHeaderEvaluator
         }
 
         var values = GetValues(response, MaxAge);
-        if (values.Count != 1 || !long.TryParse(values[0].Trim(), out var seconds) || seconds != (long)expected.TotalSeconds)
+        if (values.Count != 1 || !TryParseDeltaSeconds(values[0], out var seconds) || seconds != (long)expected.TotalSeconds)
         {
             issues.Add(new CorsIssue(CorsFailureKind.MaxAgeMismatch, "The preflight response did not contain the asserted Access-Control-Max-Age value."));
         }
@@ -365,12 +378,124 @@ internal static class CorsHeaderEvaluator
             return false;
         }
 
+        if (!TryParseCorsList(response, headerName, out var values))
+        {
+            return false;
+        }
+
+        return values.Any(value => value.Equals(expected, StringComparison.OrdinalIgnoreCase)) ||
+            (allowWildcard && values.Contains("*", StringComparer.Ordinal) && !IsCorsNonWildcardName(headerName, expected));
+    }
+
+    private static bool IsCorsSafelistedResponseHeader(string expected) =>
+        CorsSafelistedResponseHeaders.Any(header => header.Equals(expected, StringComparison.OrdinalIgnoreCase));
+
+    private static bool TryParseCorsList(HttpResponseMessage response, string headerName, out IReadOnlyList<string> tokens)
+    {
         var values = GetValues(response, headerName);
-        return values
-            .SelectMany(static value => value.Split(','))
-            .Select(static value => value.Trim())
-            .Any(value => value.Equals(expected, StringComparison.OrdinalIgnoreCase) ||
-                (allowWildcard && value == "*" && !IsCorsNonWildcardName(headerName, expected)));
+        var parsed = new List<string>();
+        foreach (var value in values)
+        {
+            var memberStart = 0;
+            for (var index = 0; index <= value.Length; index++)
+            {
+                if (index != value.Length && value[index] != ',')
+                {
+                    continue;
+                }
+
+                var member = TrimOws(value[memberStart..index]);
+                if (!IsHttpToken(member))
+                {
+                    tokens = Array.Empty<string>();
+                    return false;
+                }
+
+                parsed.Add(member);
+                memberStart = index + 1;
+            }
+        }
+
+        if (parsed.Count == 0 || parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal))
+        {
+            tokens = Array.Empty<string>();
+            return false;
+        }
+
+        tokens = parsed;
+        return true;
+    }
+
+    private static bool TryParseDeltaSeconds(string value, out long seconds)
+    {
+        value = TrimOws(value);
+        if (value.Length == 0)
+        {
+            seconds = 0;
+            return false;
+        }
+
+        seconds = 0;
+        foreach (var character in value)
+        {
+            if (character is < '0' or > '9')
+            {
+                seconds = 0;
+                return false;
+            }
+
+            var digit = character - '0';
+            if (seconds > (long.MaxValue - digit) / 10)
+            {
+                seconds = 0;
+                return false;
+            }
+
+            seconds = seconds * 10 + digit;
+        }
+
+        return true;
+    }
+
+    private static string TrimOws(string value)
+    {
+        var start = 0;
+        var end = value.Length;
+        while (start < end && value[start] is ' ' or '\t')
+        {
+            start++;
+        }
+
+        while (end > start && value[end - 1] is ' ' or '\t')
+        {
+            end--;
+        }
+
+        return value[start..end];
+    }
+
+    private static bool IsHttpToken(string value)
+    {
+        if (value.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (character <= 0x7f &&
+                (character is >= '0' and <= '9' ||
+                 character is >= 'A' and <= 'Z' ||
+                 character is >= 'a' and <= 'z' ||
+                 "!#$%&'*+-.^_`|~".Contains(character)))
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private static bool IsCorsNonWildcardName(string headerName, string expected) =>

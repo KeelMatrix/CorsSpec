@@ -4,7 +4,7 @@
 
 ## Simple and preflight requests
 
-`GET`, `HEAD`, and `POST` scenarios with no non-safelisted requested header are executed as one actual request. Other methods or requested headers first receive an `OPTIONS` request with:
+`GET`, `HEAD`, and `POST` scenarios with no requested header name are executed as one actual request. Other methods or requested headers first receive an `OPTIONS` request with:
 
 - `Origin` set to the scenario origin;
 - `Access-Control-Request-Method` set to the scenario method;
@@ -12,7 +12,9 @@
 
 For an allowed preflight, CorsSpec requires a 2xx response and checks the allow-origin, allow-methods, allow-headers, credentials, max-age when asserted, and required `Vary: Origin` behavior, then sends the actual request. A non-2xx response fails an allowed preflight even when its CORS headers are otherwise permissive. For a denied preflight, the actual request is not sent when the preflight blocks access, matching browser behavior.
 
-The scenario API accepts header names only. Because it cannot model header values, `Range` and `Content-Type` names conservatively force a preflight; browser-managed, forbidden, and CORS protocol header names are rejected before I/O.
+The scenario API accepts header names only, not header values. Because it cannot model value-sensitive safelisting, every requested caller-added header name conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`, regardless of whether its value is safe or unsafe. Include names supplied through `HttpClient.DefaultRequestHeaders` and through per-request/delegating-handler setup; a handler that adds an unlisted header is outside the scenario model and must be corrected by the caller. Browser-managed, forbidden, and CORS protocol header names are rejected before I/O.
+
+For response exposure, the browser CORS safelist is honored for `Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, and `Pragma`; these assertions do not require `Access-Control-Expose-Headers`. Other asserted response headers require a complete, valid expose-header list. Allow-method, allow-header, and expose-header lists reject empty members, invalid token bytes, and wildcard-plus-extra-token forms instead of matching a valid sibling. For credentialed scenarios, `Access-Control-Allow-Credentials` remains one exact lowercase `true` value; asserted `Access-Control-Max-Age` values are one ASCII digit-only value with optional HTTP whitespace around it. Malformed metadata never grants the permission that field is meant to establish.
 
 CorsSpec does not synthesize cookies, authorization headers, or request bodies. A caller-provided handler may supply those as part of its own test setup; CorsSpec never includes them in diagnostics.
 

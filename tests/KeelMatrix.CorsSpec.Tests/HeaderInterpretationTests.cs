@@ -164,6 +164,198 @@ public sealed class HeaderInterpretationTests
         Assert.Equal(2, handler.Requests.Count);
     }
 
+    [Theory]
+    [InlineData("Cache-Control")]
+    [InlineData("Content-Language")]
+    [InlineData("Content-Length")]
+    [InlineData("Content-Type")]
+    [InlineData("Expires")]
+    [InlineData("Last-Modified")]
+    [InlineData("Pragma")]
+    public async Task Cors_safelisted_response_headers_are_exposed_without_an_explicit_grant(string header)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { header })));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Theory]
+    [InlineData("Cache-Control")]
+    [InlineData("Content-Language")]
+    [InlineData("Content-Length")]
+    [InlineData("Content-Type")]
+    [InlineData("Expires")]
+    [InlineData("Last-Modified")]
+    [InlineData("Pragma")]
+    public async Task Cors_safelisted_response_headers_remain_exposed_for_credentialed_requests(string header)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(
+            credentials: true,
+            vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { header })));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
+    public async Task Explicit_expose_tokens_accept_case_ows_and_duplicate_header_lines()
+    {
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = ResponseFactory.Cors(vary: null);
+            response.Headers.TryAddWithoutValidation("Access-Control-Expose-Headers", new[] { " X-Other ", " x-request-id " });
+            return response;
+        });
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" })));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Theory]
+    [InlineData("X-Request-Id", false, "")]
+    [InlineData("X-Request-Id", false, "X-Request-Id")]
+    [InlineData("X-Request-Id", true, "*")]
+    [InlineData("X-Request-Id", true, "X-Request-Id")]
+    [InlineData("X-Request-Id", false, "*")]
+    [InlineData("Set-Cookie", false, "Set-Cookie")]
+    [InlineData("Set-Cookie2", false, "*")]
+    public async Task Exposed_header_matrix_keeps_wildcard_credentials_and_forbidden_boundaries(
+        string expectedHeader,
+        bool useCredentials,
+        string exposed)
+    {
+        var actualExposed = exposed.Length == 0 ? null : exposed;
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(
+            origin: "https://app.example",
+            credentials: useCredentials,
+            exposed: actualExposed,
+            vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: useCredentials),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { expectedHeader })));
+
+        var expectedSuccess = expectedHeader.Equals("X-Request-Id", StringComparison.OrdinalIgnoreCase) &&
+            actualExposed is "*" or "X-Request-Id" && (!useCredentials || actualExposed == "X-Request-Id");
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+        if (!expectedSuccess)
+        {
+            Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.ExposedHeadersMismatch);
+        }
+    }
+
+    [Theory]
+    [InlineData("DELETE, bad method", "methods")]
+    [InlineData("DELETE,", "methods")]
+    [InlineData(", DELETE", "methods")]
+    [InlineData("DELETE,,GET", "methods")]
+    [InlineData("DE LETE", "methods")]
+    [InlineData("DELETE, DÉLETE", "methods")]
+    [InlineData("DELETE,\u001f", "methods")]
+    [InlineData("X-Trace, bad header", "headers")]
+    [InlineData("X-Trace,", "headers")]
+    [InlineData("X-Trace,,Authorization", "headers")]
+    [InlineData("X:Trace", "headers")]
+    [InlineData("X-Request-Id, bad header", "exposed")]
+    [InlineData("X-Request-Id,", "exposed")]
+    [InlineData("X-Request-Id,,X-Other", "exposed")]
+    [InlineData("X:Request-Id", "exposed")]
+    public async Task Malformed_cors_lists_fail_closed_even_when_the_expected_token_is_present(string value, string field)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(
+                methods: field == "methods" ? value : "DELETE",
+                headers: field == "headers" ? value : "X-Trace")
+            : ResponseFactory.Cors(exposed: field == "exposed" ? value : "X-Request-Id", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var expectedHeaders = field == "headers" ? new[] { "X-Trace" } : Array.Empty<string>();
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, expectedHeaders),
+            CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
+
+        Assert.False(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
+    public async Task Valid_cors_lists_accept_case_insensitive_tokens_and_http_ows()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: " \tDeLeTe\t ", headers: " \tx-trace\t ", maxAge: " \t600\t ")
+            : ResponseFactory.Cors(exposed: " \tx-request-id\t ", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }, expectedMaxAge: TimeSpan.FromMinutes(10))));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Theory]
+    [InlineData("+600")]
+    [InlineData("600.0")]
+    [InlineData("-1")]
+    [InlineData("600x")]
+    [InlineData("６００")]
+    [InlineData("999999999999999999999999999999")]
+    public async Task Max_age_requires_one_ascii_digit_only_value(string value)
+    {
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(maxAge: value));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromMinutes(10))));
+
+        Assert.False(result.IsSuccess, result.Summary);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MaxAgeMismatch);
+    }
+
+    [Fact]
+    public async Task Duplicate_max_age_values_are_rejected()
+    {
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = ResponseFactory.Cors(maxAge: "600");
+            response.Headers.TryAddWithoutValidation("Access-Control-Max-Age", "600");
+            return response;
+        });
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromMinutes(10))));
+
+        Assert.False(result.IsSuccess, result.Summary);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MaxAgeMismatch);
+    }
+
+    [Theory]
+    [InlineData("methods")]
+    [InlineData("headers")]
+    [InlineData("exposed")]
+    public async Task Wildcard_list_members_cannot_be_combined_with_other_tokens(string field)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(
+                methods: field == "methods" ? "*, DELETE" : "DELETE",
+                headers: field == "headers" ? "*, X-Trace" : "X-Trace")
+            : ResponseFactory.Cors(exposed: field == "exposed" ? "*, X-Request-Id" : null, vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, field == "headers" ? new[] { "X-Trace" } : null),
+            CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
+
+        Assert.False(result.IsSuccess, result.Summary);
+    }
+
     [Fact]
     public async Task Credentialed_wildcards_do_not_grant_preflight_method_or_headers()
     {

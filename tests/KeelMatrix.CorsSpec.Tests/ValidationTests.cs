@@ -59,16 +59,16 @@ public sealed class ValidationTests
     [InlineData("Accept")]
     [InlineData("Accept-Language")]
     [InlineData("Content-Language")]
-    public void Safelisted_header_names_without_values_remain_simple(string header)
+    [InlineData("Content-Type")]
+    [InlineData("Range")]
+    public void Value_sensitive_header_names_without_values_conservatively_force_preflight(string header)
     {
         var scenario = new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header });
 
-        Assert.False(scenario.RequiresPreflight);
+        Assert.True(scenario.RequiresPreflight);
     }
 
     [Theory]
-    [InlineData("Range")]
-    [InlineData("Content-Type")]
     [InlineData("X-Trace")]
     public void Value_sensitive_and_custom_headers_force_a_preflight(string header)
     {

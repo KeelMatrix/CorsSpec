@@ -17,7 +17,7 @@ var result = await new CorsVerifier(testClient).VerifyAsync(contract);
 result.EnsureSuccess();
 ```
 
-The package automatically constructs meaningful preflights, evaluates browser-relevant headers, and reports method, requested-header, credentials, origin, `Vary`, exposed-header, and max-age mismatches. It does not own application startup, contact an origin, use browser automation, or prove authentication, authorization, CSRF protection, or other server-side security properties.
+The package automatically constructs meaningful preflights, evaluates browser-relevant headers, and reports method, requested-header, credentials, origin, `Vary`, exposed-header, and max-age mismatches. The scenario API accepts header names only, so `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range` names conservatively force a preflight for both safe and unsafe caller-provided values; include those names for default or per-request handler headers. Browser-safelisted response headers do not need an expose grant, and malformed CORS metadata fails closed. It does not own application startup, contact an origin, use browser automation, or prove authentication, authorization, CSRF protection, or other server-side security properties.
 
 See the repository [CORS contract guide](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/cors-contracts.md) for the complete usage and caller-owned privacy boundary.
 

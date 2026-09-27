@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $failures = [System.Collections.Generic.List[string]]::new()
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.Reflection.Metadata
 
 function Add-Failure([string]$Message) {
     [void]$failures.Add($Message)
@@ -77,31 +78,102 @@ function Test-CommonMetadata([object]$Metadata, [string]$Label, [string]$Expecte
     return $repository.commit
 }
 
-function Test-Pdb([System.IO.Compression.ZipArchiveEntry]$Entry, [string]$ExpectedCommit) {
+function Test-Pdb(
+    [System.IO.Compression.ZipArchiveEntry]$Entry,
+    [byte[]]$AssemblyBytes,
+    [string]$ExpectedCommit) {
     if ($null -eq $Entry -or $Entry.Length -eq 0) {
         Add-Failure('Symbol archive is missing a non-empty portable PDB.')
         return
     }
 
-    $stream = $Entry.Open()
-    $memory = [System.IO.MemoryStream]::new()
+    if ($null -eq $AssemblyBytes -or $AssemblyBytes.Length -eq 0) {
+        Add-Failure('Package is missing a non-empty assembly for PDB identity validation.')
+        return
+    }
+
+    $pdbStream = $Entry.Open()
+    $pdbMemory = [System.IO.MemoryStream]::new()
+    $assemblyStream = [System.IO.MemoryStream]::new($AssemblyBytes, $false)
+    $provider = $null
+    $peReader = $null
     try {
-        $stream.CopyTo($memory)
-        $bytes = $memory.ToArray()
-        $read = $bytes.Length
-        if ($read -lt 4 -or $bytes[0] -ne 0x42 -or $bytes[1] -ne 0x53 -or $bytes[2] -ne 0x4a -or $bytes[3] -ne 0x42) {
-            Add-Failure('Symbol archive PDB is not a portable PDB.')
+        $pdbStream.CopyTo($pdbMemory)
+        $pdbMemory.Position = 0
+        try {
+            $provider = [System.Reflection.Metadata.MetadataReaderProvider]::FromPortablePdbStream($pdbMemory)
+            $reader = $provider.GetMetadataReader()
+        }
+        catch {
+            Add-Failure('Symbol archive PDB is not a structurally valid portable PDB.')
+            return
         }
 
-        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-        $sourceLink = "https://raw.githubusercontent.com/KeelMatrix/CorsSpec/$ExpectedCommit/*"
-        if (-not $text.Contains($sourceLink, [System.StringComparison]::Ordinal)) {
-            Add-Failure('Symbol archive PDB is missing the expected SourceLink provenance.')
+        $pdbId = [byte[]]$reader.DebugMetadataHeader.Id
+        if ($pdbId.Length -ne 20) {
+            Add-Failure('Symbol archive PDB has an invalid portable PDB identity length.')
+        }
+
+        try {
+            $peReader = [System.Reflection.PortableExecutable.PEReader]::new($assemblyStream)
+            $codeViewEntries = @($peReader.ReadDebugDirectory() | Where-Object { $_.Type -eq [System.Reflection.PortableExecutable.DebugDirectoryEntryType]::CodeView -and $_.IsPortableCodeView })
+            if ($codeViewEntries.Count -ne 1) {
+                Add-Failure('Package assembly must contain exactly one portable CodeView PDB identity.')
+            }
+            else {
+                $codeViewEntry = $codeViewEntries[0]
+                $codeView = $peReader.ReadCodeViewDebugDirectoryData($codeViewEntry)
+                $expectedPdbId = [byte[]]::new(20)
+                $codeView.Guid.ToByteArray().CopyTo($expectedPdbId, 0)
+                [BitConverter]::GetBytes([uint32]$codeViewEntry.Stamp).CopyTo($expectedPdbId, 16)
+                if ([Convert]::ToHexString($pdbId) -ne [Convert]::ToHexString($expectedPdbId)) {
+                    Add-Failure('Symbol archive PDB identity does not match the packaged assembly.')
+                }
+            }
+        }
+        catch {
+            Add-Failure('Package assembly does not contain readable portable PDB identity metadata.')
+        }
+
+        $sourceLinkKind = [guid]'cc110556-a091-4d38-9fec-25ab9a351a6a'
+        $sourceLinkRecords = [System.Collections.Generic.List[object]]::new()
+        foreach ($handle in $reader.GetCustomDebugInformation([System.Reflection.Metadata.EntityHandle]::ModuleDefinition)) {
+            $customDebugInformation = $reader.GetCustomDebugInformation($handle)
+            if ($reader.GetGuid($customDebugInformation.Kind) -eq $sourceLinkKind) {
+                [void]$sourceLinkRecords.Add($customDebugInformation)
+            }
+        }
+        if ($sourceLinkRecords.Count -ne 1) {
+            Add-Failure('Symbol archive PDB must contain exactly one SourceLink custom debug record.')
+        }
+        else {
+            $sourceLinkText = [System.Text.Encoding]::UTF8.GetString($reader.GetBlobBytes($sourceLinkRecords[0].Value))
+            try {
+                $sourceLink = $sourceLinkText | ConvertFrom-Json -ErrorAction Stop
+                $documentProperties = @($sourceLink.documents.PSObject.Properties)
+                $expectedSourceLink = "https://raw.githubusercontent.com/KeelMatrix/CorsSpec/$ExpectedCommit/*"
+                if ($null -eq $sourceLink.documents -or $documentProperties.Count -eq 0) {
+                    Add-Failure('Symbol archive PDB SourceLink metadata has no documents mapping.')
+                }
+                else {
+                    foreach ($property in $documentProperties) {
+                        if ([string]::IsNullOrWhiteSpace($property.Name) -or $property.Value -isnot [string] -or $property.Value -cne $expectedSourceLink) {
+                            Add-Failure('Symbol archive PDB SourceLink metadata has an unexpected commit mapping.')
+                        }
+                    }
+                }
+            }
+            catch {
+                Add-Failure('Symbol archive PDB SourceLink metadata is not valid JSON.')
+            }
         }
     }
     finally {
-        $memory.Dispose()
-        $stream.Dispose()
+        if ($null -ne $peReader) { $peReader.Dispose() }
+        if ($null -ne $provider) { $provider.Dispose() }
+        $assemblyStream.Dispose()
+        $pdbMemory.Dispose()
+        $pdbStream.Dispose()
     }
 }
 
@@ -130,13 +202,28 @@ $packageArchive = Open-Archive $PackagePath 'package'
 $symbolArchive = Open-Archive $SymbolsPath 'symbol'
 $packageCommit = $null
 $symbolCommit = $null
+$packageAssemblyBytes = $null
 
 if ($null -ne $packageArchive) {
     try {
         $packageNames = @($packageArchive.Entries | ForEach-Object FullName)
         $required = @('README.md', 'LICENSE', "$expectedId.nuspec", 'lib/net8.0/KeelMatrix.CorsSpec.dll', 'lib/net8.0/KeelMatrix.CorsSpec.xml')
         foreach ($name in $required) {
-            if ($packageNames -notcontains $name) { Add-Failure("Package is missing required entry: $name") }
+            $count = @($packageArchive.Entries | Where-Object FullName -eq $name).Count
+            if ($count -ne 1) { Add-Failure("Package must contain exactly one required entry: $name") }
+        }
+        $assemblyEntry = @($packageArchive.Entries | Where-Object FullName -eq 'lib/net8.0/KeelMatrix.CorsSpec.dll')
+        if ($assemblyEntry.Count -eq 1) {
+            $assemblyStream = $assemblyEntry[0].Open()
+            $assemblyMemory = [System.IO.MemoryStream]::new()
+            try {
+                $assemblyStream.CopyTo($assemblyMemory)
+                $packageAssemblyBytes = $assemblyMemory.ToArray()
+            }
+            finally {
+                $assemblyMemory.Dispose()
+                $assemblyStream.Dispose()
+            }
         }
 
         $packageTfms = @($packageNames | Where-Object { $_ -match '^lib/([^/]+)/' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)
@@ -174,7 +261,8 @@ if ($null -ne $symbolArchive) {
         $symbolNames = @($symbolArchive.Entries | ForEach-Object FullName)
         $expectedPdb = 'lib/net8.0/KeelMatrix.CorsSpec.pdb'
         foreach ($name in @('_rels/.rels', '[Content_Types].xml', "$expectedId.nuspec", $expectedPdb)) {
-            if ($symbolNames -notcontains $name) { Add-Failure("Symbol archive is missing required entry: $name") }
+            $count = @($symbolArchive.Entries | Where-Object FullName -eq $name).Count
+            if ($count -ne 1) { Add-Failure("Symbol archive must contain exactly one required entry: $name") }
         }
 
         $symbolTfms = @($symbolNames | Where-Object { $_ -match '^lib/([^/]+)/' } | ForEach-Object { $Matches[1] } | Sort-Object -Unique)
@@ -184,8 +272,8 @@ if ($null -ne $symbolArchive) {
         if ($null -ne $symbolNuspec) { $symbolCommit = Test-CommonMetadata $symbolNuspec.package.metadata 'Symbol' $expectedId $expectedVersion $true }
         if ($null -ne $packageCommit -and $null -ne $symbolCommit -and $packageCommit -ne $symbolCommit) { Add-Failure('Package and symbol archives do not declare the same repository commit.') }
 
-        $pdb = $symbolArchive.Entries | Where-Object FullName -eq $expectedPdb | Select-Object -First 1
-        if ($null -ne $symbolCommit) { Test-Pdb $pdb $symbolCommit }
+        $pdb = @($symbolArchive.Entries | Where-Object FullName -eq $expectedPdb)
+        if ($null -ne $symbolCommit -and $pdb.Count -eq 1 -and $null -ne $packageAssemblyBytes) { Test-Pdb $pdb[0] $packageAssemblyBytes $symbolCommit }
 
         $allowedSymbols = @('_rels/.rels', '[Content_Types].xml', "$expectedId.nuspec", $expectedPdb)
         $unexpectedSymbols = @($symbolNames | Where-Object { $_ -notmatch '/$' -and $_ -notin $allowedSymbols -and $_ -notmatch '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
