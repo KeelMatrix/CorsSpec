@@ -42,6 +42,8 @@ CorsSpec constructs a preflight for non-simple methods or requested headers, the
 
 The scenario API accepts header names, not values. To avoid a name-only false negative, every requested caller-added header conservatively forces a preflight, including `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range`; list those names for both default and per-request handler headers. Response-header assertions honor the browser safelist (`Cache-Control`, `Content-Language`, `Content-Length`, `Content-Type`, `Expires`, `Last-Modified`, and `Pragma`) and fail closed on malformed CORS metadata.
 
+Scenario targets must be relative application paths; URI authorities, schemes, backslashes, UNC/device paths, and root-relative Windows paths are rejected before I/O. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods, browser-managed headers, and conditional override headers (`X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override`) are also rejected before I/O. `Set-Cookie` and `Set-Cookie2` cannot be asserted as exposed response headers because browsers forbid exposing them.
+
 Use `CorsMatrix` for a small set of contracts:
 
 ```csharp

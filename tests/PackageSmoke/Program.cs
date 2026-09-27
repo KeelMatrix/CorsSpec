@@ -10,11 +10,26 @@ using Microsoft.Extensions.Logging;
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
 builder.WebHost.UseTestServer();
 builder.Logging.ClearProviders();
-builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy.WithOrigins("https://allowed.example")));
+var allowedMethods = new[] { "GET", "PATCH" };
+var requestedHeaderNames = new[] { "X-Trace" };
+builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy
+    .WithOrigins("https://allowed.example")
+    .WithMethods(allowedMethods)
+    .WithHeaders("X-Trace")));
 var app = builder.Build();
 app.UseRouting();
 app.UseCors("smoke");
-app.MapGet("/orders", () => Results.Ok());
+var patchRequests = 0;
+app.Use(async (context, next) =>
+{
+    if (context.Request.Method == "PATCH")
+    {
+        patchRequests++;
+    }
+
+    await next();
+});
+app.MapMethods("/orders", allowedMethods, () => Results.Ok());
 await app.StartAsync();
 
 using var client = app.GetTestClient();
@@ -31,5 +46,21 @@ if (!allowed.IsSuccess || !denied.IsSuccess)
     throw new InvalidOperationException($"Package smoke failed. Allowed: {allowed.Summary} Denied: {denied.Summary}");
 }
 
-Console.WriteLine("Package consumer smoke passed: allowed and denied CORS contracts verified.");
+var allowedPreflight = await verifier.VerifyAsync(new CorsContract(
+    new CorsScenario("/orders", "https://allowed.example", new HttpMethod("PATCH"), requestedHeaderNames),
+    CorsExpectation.Allowed()));
+if (!allowedPreflight.IsSuccess || !allowedPreflight.PreflightSent || !allowedPreflight.ActualRequestSent || patchRequests != 1)
+{
+    throw new InvalidOperationException($"Package smoke failed for allowed preflight. {allowedPreflight.Summary} PATCH requests: {patchRequests}.");
+}
+
+var deniedPreflight = await verifier.VerifyAsync(new CorsContract(
+    new CorsScenario("/orders", "https://denied.example", new HttpMethod("PATCH"), requestedHeaderNames),
+    CorsExpectation.Denied()));
+if (!deniedPreflight.IsSuccess || !deniedPreflight.PreflightSent || deniedPreflight.ActualRequestSent || patchRequests != 1)
+{
+    throw new InvalidOperationException($"Package smoke failed for denied preflight. {deniedPreflight.Summary} PATCH requests: {patchRequests}.");
+}
+
+Console.WriteLine("Package consumer smoke passed: simple and preflight allowed/denied CORS contracts verified.");
 await app.DisposeAsync();

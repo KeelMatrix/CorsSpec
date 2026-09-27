@@ -24,11 +24,39 @@ public sealed class ValidationTests
         Assert.Empty(handler.Requests);
     }
 
-    [Fact]
-    public void Scenario_rejects_an_absolute_target_path()
+    [Theory]
+    [InlineData("https://service.test/orders")]
+    [InlineData("//other-host/orders")]
+    [InlineData("\\\\evil\\share")]
+    [InlineData("/\\evil\\share")]
+    [InlineData("\\/evil/share")]
+    [InlineData("\\\\?\\C:\\orders")]
+    [InlineData("\\\\.\\pipe\\orders")]
+    [InlineData("\\orders")]
+    [InlineData("C:\\orders")]
+    public void Scenario_rejects_absolute_authority_and_windows_separator_paths(string path)
     {
-        Assert.Throws<ArgumentException>(() => new CorsScenario("https://service.test/orders", "https://app.example", HttpMethod.Get));
-        Assert.Throws<ArgumentException>(() => new CorsScenario("//other-host/orders", "https://app.example", HttpMethod.Get));
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("CONNECT")]
+    [InlineData("connect")]
+    [InlineData("TRACE")]
+    [InlineData("trace")]
+    [InlineData("TRACK")]
+    [InlineData("track")]
+    public void Browser_forbidden_methods_are_rejected_before_io(string method)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        Assert.Throws<ArgumentException>(() => new CorsScenario("/orders", "https://app.example", new HttpMethod(method)));
+        Assert.Empty(handler.Requests);
     }
 
     [Theory]
@@ -84,9 +112,43 @@ public sealed class ValidationTests
     [InlineData("Sec-Fetch-Site")]
     [InlineData("Access-Control-Request-Method")]
     [InlineData("Proxy-Authorization")]
+    [InlineData("X-HTTP-Method")]
+    [InlineData("x-http-method-override")]
+    [InlineData("X-Method-Override")]
+    [InlineData("Set-Cookie2")]
     public void Browser_managed_and_cors_protocol_headers_are_rejected(string header)
     {
         Assert.Throws<ArgumentException>(() => new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }));
+    }
+
+    [Theory]
+    [InlineData(" X-HTTP-Method")]
+    [InlineData("X-HTTP-Method ")]
+    [InlineData("X-HTTP-Method\t")]
+    public void Conditional_override_header_whitespace_is_rejected_before_io(string header)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        Assert.Throws<ArgumentException>(() => new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("Set-Cookie")]
+    [InlineData("set-cookie")]
+    [InlineData("SET-COOKIE2")]
+    [InlineData("Set-Cookie2")]
+    public void Forbidden_response_header_expectations_fail_before_io(string header)
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { header, header }));
+
+        Assert.Contains("browsers forbid exposing", exception.Message);
+        Assert.Empty(handler.Requests);
     }
 
     [Theory]

@@ -20,11 +20,7 @@ public sealed class CorsScenario
     {
         Path = Validation.RequirePath(path);
         Origin = Validation.RequireOrigin(origin);
-        Method = method ?? throw new ArgumentNullException(nameof(method));
-        if (string.IsNullOrWhiteSpace(method.Method) || method.Method.Any(char.IsWhiteSpace))
-        {
-            throw new ArgumentException("The HTTP method must be a valid token.", nameof(method));
-        }
+        Method = Validation.RequireMethod(method);
 
         RequestedHeaders = Validation.NormalizeHeaderNames(requestedHeaders, nameof(requestedHeaders));
         UseCredentials = useCredentials;

@@ -6,6 +6,17 @@ namespace KeelMatrix.CorsSpec.Tests;
 
 public sealed class RequestGenerationTests
 {
+    [Theory]
+    [InlineData("/orders")]
+    [InlineData("orders")]
+    public void Valid_application_paths_create_relative_requests(string path)
+    {
+        var scenario = new CorsScenario(path, "https://app.example", HttpMethod.Get);
+        using var request = CorsVerifier.CreateActualRequest(scenario);
+
+        Assert.False(request.RequestUri!.IsAbsoluteUri);
+    }
+
     [Fact]
     public async Task Simple_request_sends_origin_and_actual_method_without_preflight()
     {

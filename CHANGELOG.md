@@ -10,7 +10,8 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 - Requires successful (200–299) preflight responses before sending an allowed actual request, and reports a dedicated preflight-status failure.
 - Enforces canonical browser origins, exact credential permission syntax, bounded immutable contract snapshots, browser-managed header rejection, and non-credentialed wildcard method/header exposure semantics.
 - Honors the browser CORS response-header safelist, rejects malformed response metadata instead of accepting a valid token from an invalid list, and treats all value-sensitive caller header names conservatively as preflighted because the scenario API does not model values.
-- Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata; validates Windows, Linux, and macOS package-consumer evidence.
+- Rejects absolute or Windows separator target paths, browser-forbidden methods and conditional override headers, and impossible `Set-Cookie`/`Set-Cookie2` exposure expectations before I/O.
+- Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata against the checked-out candidate SHA; the package-consumer smoke covers simple and custom preflight behavior on Windows, Linux, and macOS.
 
 ## [0.1.0] - 2026-09-24
 

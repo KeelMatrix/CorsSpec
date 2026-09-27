@@ -28,7 +28,7 @@ public sealed class CorsExpectation
         TimeSpan? expectedMaxAge = null,
         bool requireVaryOrigin = false)
     {
-        var exposed = Validation.NormalizeHeaderNames(expectedExposedHeaders, nameof(expectedExposedHeaders), rejectBrowserManaged: false);
+        var exposed = Validation.NormalizeExpectedExposedHeaders(expectedExposedHeaders, nameof(expectedExposedHeaders));
         if (expectedMaxAge is { } maxAge)
         {
             Validation.ValidateMaxAge(maxAge, nameof(expectedMaxAge));

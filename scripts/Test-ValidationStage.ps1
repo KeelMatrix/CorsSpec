@@ -190,12 +190,12 @@ function Add-DuplicateArchiveEntry([string]$ArchivePath, [string]$EntryName, [st
 }
 
 function Assert-InspectionPasses($Set) {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit
     if ($LASTEXITCODE -ne 0) { throw 'A valid package and symbol archive set was rejected.' }
 }
 
 function Assert-InspectionFails($Set, [string]$Reason) {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols 2>$null
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit 2>$null
     if ($LASTEXITCODE -eq 0) { throw "Archive inspection accepted $Reason." }
 }
 
@@ -204,7 +204,7 @@ New-Item -ItemType Directory -Force -Path $fixtureRoot | Out-Null
 try {
     $valid = New-FixtureSet (Join-Path $fixtureRoot 'valid')
     Assert-InspectionPasses $valid
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $valid.Package -SymbolsPath $valid.Symbols -RequireIcon 2>$null
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $valid.Package -SymbolsPath $valid.Symbols -ExpectedCommit $repositoryCommit -RequireIcon 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Package inspection did not enforce the icon prerequisite.' }
     $extraArtifact = Join-Path (Split-Path -Parent $valid.Package) 'unexpected.nupkg'
     Set-Content -LiteralPath $extraArtifact -Value 'unexpected artifact' -Encoding utf8
@@ -226,6 +226,9 @@ try {
 
     $commitDrift = New-FixtureSet (Join-Path $fixtureRoot 'commit-drift') @{ PackageCommit = '1111111111111111111111111111111111111111' }
     Assert-InspectionFails $commitDrift 'package and symbol commit drift'
+
+    $foreignCommit = New-FixtureSet (Join-Path $fixtureRoot 'foreign-commit') @{ PackageCommit = '2222222222222222222222222222222222222222'; SymbolCommit = '2222222222222222222222222222222222222222' }
+    Assert-InspectionFails $foreignCommit 'package and symbol archives with the same foreign commit'
 
     $packageTfmDrift = New-FixtureSet (Join-Path $fixtureRoot 'package-tfm-drift') @{ PackageTfm = 'net7.0' }
     Assert-InspectionFails $packageTfmDrift 'package TFM drift'

@@ -6,19 +6,52 @@ internal static class Validation
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        if (path.Contains('\r') || path.Contains('\n') || path.StartsWith("//", StringComparison.Ordinal))
+        if (path.Contains('\r') || path.Contains('\n'))
         {
             throw new ArgumentException("The target path cannot contain line breaks.", nameof(path));
         }
 
-        if (path.StartsWith("//", StringComparison.Ordinal) ||
+        if (path.Contains('\\') ||
+            path.StartsWith("//", StringComparison.Ordinal) ||
             path.Contains("://", StringComparison.Ordinal) ||
             System.Text.RegularExpressions.Regex.IsMatch(path, "^[A-Za-z][A-Za-z0-9+.-]*:"))
         {
             throw new ArgumentException("The target must be a relative application path; use the caller's HttpClient to select the destination.", nameof(path));
         }
 
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            if (request.RequestUri?.IsAbsoluteUri == true)
+            {
+                throw new ArgumentException("The target must be a relative application path; use the caller's HttpClient to select the destination.", nameof(path));
+            }
+        }
+        catch (UriFormatException)
+        {
+            throw new ArgumentException("The target must be a relative application path; use the caller's HttpClient to select the destination.", nameof(path));
+        }
+
         return path;
+    }
+
+    public static HttpMethod RequireMethod(HttpMethod method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+
+        if (!IsToken(method.Method))
+        {
+            throw new ArgumentException("The HTTP method must be a valid token.", nameof(method));
+        }
+
+        if (method.Method.Equals("CONNECT", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("TRACE", StringComparison.OrdinalIgnoreCase) ||
+            method.Method.Equals("TRACK", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The HTTP method is forbidden for browser-style CORS requests.", nameof(method));
+        }
+
+        return method;
     }
 
     public static string RequireOrigin(string origin)
@@ -95,6 +128,21 @@ internal static class Validation
         return Array.AsReadOnly(normalized.ToArray());
     }
 
+    public static IReadOnlyList<string> NormalizeExpectedExposedHeaders(IEnumerable<string>? names, string parameterName)
+    {
+        var normalized = NormalizeHeaderNames(names, parameterName, rejectBrowserManaged: false);
+        if (normalized.Any(IsForbiddenResponseHeader))
+        {
+            throw new ArgumentException($"'{parameterName}' contains a response header that browsers forbid exposing.", parameterName);
+        }
+
+        return normalized;
+    }
+
+    private static bool IsForbiddenResponseHeader(string name) =>
+        name.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Set-Cookie2", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsBrowserManagedHeader(string name) =>
         name.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase) ||
         name.StartsWith("Proxy-", StringComparison.OrdinalIgnoreCase) ||
@@ -113,11 +161,15 @@ internal static class Validation
         name.Equals("Origin", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Set-Cookie2", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("TE", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Trailer", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Upgrade", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Via", StringComparison.OrdinalIgnoreCase);
+        name.Equals("Via", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("X-HTTP-Method", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("X-HTTP-Method-Override", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("X-Method-Override", StringComparison.OrdinalIgnoreCase);
 
     public static void ValidateMaxAge(TimeSpan value, string parameterName)
     {

@@ -9,6 +9,14 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectPath = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $propsPath = Join-Path $root 'Directory.Build.props'
 $changelogPath = Join-Path $root 'CHANGELOG.md'
+$repositoryCommit = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $repositoryCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'Could not resolve the checked-out repository commit for release artifact provenance validation.'
+}
+$expectedCommit = if ([string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) { $repositoryCommit } else { $env:GITHUB_SHA.Trim() }
+if ($expectedCommit -notmatch '^[0-9a-fA-F]{40}$' -or $expectedCommit -ine $repositoryCommit) {
+    throw "Expected candidate commit '$expectedCommit' does not match checked-out HEAD '$repositoryCommit'."
+}
 
 if ($Tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
     throw "Malformed release tag '$Tag'. Expected vX.Y.Z."
@@ -75,7 +83,8 @@ if (-not [string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
     $inspectionScript = Join-Path $PSScriptRoot 'Inspect-Package.ps1'
     & pwsh -NoProfile -File $inspectionScript `
         -PackagePath (Join-Path $artifactRoot "$packageId.$version.nupkg") `
-        -SymbolsPath (Join-Path $artifactRoot "$packageId.$version.snupkg")
+        -SymbolsPath (Join-Path $artifactRoot "$packageId.$version.snupkg") `
+        -ExpectedCommit $expectedCommit
     if ($LASTEXITCODE -ne 0) {
         throw 'Release artifacts failed content and identity inspection.'
     }

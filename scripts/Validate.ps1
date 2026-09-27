@@ -14,6 +14,18 @@ $packages = Join-Path $root 'artifacts' 'packages'
 $failures = [System.Collections.Generic.List[string]]::new()
 . (Join-Path $PSScriptRoot 'Invoke-ValidationStage.ps1')
 
+$repositoryCommit = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $repositoryCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'Could not resolve the checked-out repository commit for artifact provenance validation.'
+}
+$expectedCommit = if ([string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) { $repositoryCommit } else { $env:GITHUB_SHA.Trim() }
+if ($expectedCommit -notmatch '^[0-9a-fA-F]{40}$') {
+    throw "Expected candidate commit '$expectedCommit' is not a 40-character hexadecimal SHA."
+}
+if ($expectedCommit -ine $repositoryCommit) {
+    throw "Expected candidate commit '$expectedCommit' does not match checked-out HEAD '$repositoryCommit'."
+}
+
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     Write-Error "Invalid package version '$Version'. Expected X.Y.Z."
     exit 1
@@ -45,7 +57,7 @@ if (-not $SkipPackage) {
     $package = Join-Path $packages "KeelMatrix.CorsSpec.$Version.nupkg"
     $symbols = Join-Path $packages "KeelMatrix.CorsSpec.$Version.snupkg"
     Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages }
-    Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -RequireIcon:$RequireIcon }
+    Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -ExpectedCommit $expectedCommit -RequireIcon:$RequireIcon }
     Invoke-ValidationStage -Name 'Package consumer smoke' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
 }
 

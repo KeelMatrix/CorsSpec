@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
     [Parameter(Mandatory = $true)][string]$SymbolsPath,
+    [Parameter(Mandatory = $true)][string]$ExpectedCommit,
     [switch]$RequireIcon
 )
 
@@ -13,6 +14,10 @@ Add-Type -AssemblyName System.Reflection.Metadata
 
 function Add-Failure([string]$Message) {
     [void]$failures.Add($Message)
+}
+
+if ($ExpectedCommit -notmatch '^[0-9a-fA-F]{40}$') {
+    Add-Failure("Expected repository commit '$ExpectedCommit' is not a 40-character hexadecimal SHA.")
 }
 
 function Open-Archive([string]$Path, [string]$Label) {
@@ -241,6 +246,7 @@ if ($null -ne $packageArchive) {
         $nuspec = Read-Nuspec $packageArchive 'Package'
         if ($null -ne $nuspec) {
             $packageCommit = Test-CommonMetadata $nuspec.package.metadata 'Package' $expectedId $expectedVersion $false
+            if ($packageCommit -ne $ExpectedCommit) { Add-Failure("Package repository commit '$packageCommit' does not match expected candidate '$ExpectedCommit'.") }
             $metadata = $nuspec.package.metadata
             if ($metadata.license.'#text' -ne 'MIT') { Add-Failure('Package license expression is not MIT.') }
             if ($metadata.readme -ne 'README.md') { Add-Failure('Package README metadata is not README.md.') }
@@ -250,7 +256,7 @@ if ($null -ne $packageArchive) {
 
         $allowed = @('_rels/.rels', '[Content_Types].xml', 'README.md', 'LICENSE', "$expectedId.nuspec", 'lib/net8.0/KeelMatrix.CorsSpec.dll', 'lib/net8.0/KeelMatrix.CorsSpec.xml')
         if ($iconPresent) { $allowed += 'icon.png' }
-        $unexpected = @($packageNames | Where-Object { $_ -notmatch '/$' -and $_ -notin $allowed -and $_ -notmatch '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
+        $unexpected = @($packageNames | Where-Object { $_ -notmatch '/$' -and $_ -notin $allowed -and $_ -notmatch '^package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp$' })
         if ($unexpected.Count -ne 0) { Add-Failure("Package contains unintended entries: $($unexpected -join ', ')") }
     }
     finally { $packageArchive.Dispose() }
@@ -269,14 +275,17 @@ if ($null -ne $symbolArchive) {
         if ($symbolTfms.Count -ne 1 -or $symbolTfms[0] -ne 'net8.0') { Add-Failure('Symbol archive must contain exactly the net8.0 target framework payload.') }
 
         $symbolNuspec = Read-Nuspec $symbolArchive 'Symbol'
-        if ($null -ne $symbolNuspec) { $symbolCommit = Test-CommonMetadata $symbolNuspec.package.metadata 'Symbol' $expectedId $expectedVersion $true }
+        if ($null -ne $symbolNuspec) {
+            $symbolCommit = Test-CommonMetadata $symbolNuspec.package.metadata 'Symbol' $expectedId $expectedVersion $true
+            if ($symbolCommit -ne $ExpectedCommit) { Add-Failure("Symbol repository commit '$symbolCommit' does not match expected candidate '$ExpectedCommit'.") }
+        }
         if ($null -ne $packageCommit -and $null -ne $symbolCommit -and $packageCommit -ne $symbolCommit) { Add-Failure('Package and symbol archives do not declare the same repository commit.') }
 
         $pdb = @($symbolArchive.Entries | Where-Object FullName -eq $expectedPdb)
         if ($null -ne $symbolCommit -and $pdb.Count -eq 1 -and $null -ne $packageAssemblyBytes) { Test-Pdb $pdb[0] $packageAssemblyBytes $symbolCommit }
 
         $allowedSymbols = @('_rels/.rels', '[Content_Types].xml', "$expectedId.nuspec", $expectedPdb)
-        $unexpectedSymbols = @($symbolNames | Where-Object { $_ -notmatch '/$' -and $_ -notin $allowedSymbols -and $_ -notmatch '^package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp$' })
+        $unexpectedSymbols = @($symbolNames | Where-Object { $_ -notmatch '/$' -and $_ -notin $allowedSymbols -and $_ -notmatch '^package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp$' })
         if ($unexpectedSymbols.Count -ne 0) { Add-Failure("Symbol archive contains unintended entries: $($unexpectedSymbols -join ', ')") }
     }
     finally { $symbolArchive.Dispose() }

@@ -227,8 +227,6 @@ public sealed class HeaderInterpretationTests
     [InlineData("X-Request-Id", true, "*")]
     [InlineData("X-Request-Id", true, "X-Request-Id")]
     [InlineData("X-Request-Id", false, "*")]
-    [InlineData("Set-Cookie", false, "Set-Cookie")]
-    [InlineData("Set-Cookie2", false, "*")]
     public async Task Exposed_header_matrix_keeps_wildcard_credentials_and_forbidden_boundaries(
         string expectedHeader,
         bool useCredentials,
@@ -372,7 +370,7 @@ public sealed class HeaderInterpretationTests
     }
 
     [Fact]
-    public async Task Wildcards_do_not_cover_authorization_or_set_cookie()
+    public async Task Wildcards_do_not_cover_authorization()
     {
         var authorizationHandler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "*"));
         using var authorizationClient = new HttpClient(authorizationHandler) { BaseAddress = new Uri("https://service.test") };
@@ -380,16 +378,8 @@ public sealed class HeaderInterpretationTests
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "Authorization" }),
             CorsExpectation.Allowed()));
 
-        var exposeHandler = new RecordingHandler(_ => ResponseFactory.Cors(exposed: "*", vary: null));
-        using var exposeClient = new HttpClient(exposeHandler) { BaseAddress = new Uri("https://service.test") };
-        var exposeResult = await new CorsVerifier(exposeClient).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
-            CorsExpectation.Allowed(expectedExposedHeaders: new[] { "Set-Cookie" })));
-
         Assert.False(authorizationResult.IsSuccess);
         Assert.Contains(authorizationResult.Issues, issue => issue.Kind == CorsFailureKind.RequestedHeaderRejected);
-        Assert.False(exposeResult.IsSuccess);
-        Assert.Contains(exposeResult.Issues, issue => issue.Kind == CorsFailureKind.ExposedHeadersMismatch);
     }
 
     [Fact]

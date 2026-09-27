@@ -19,6 +19,8 @@ result.EnsureSuccess();
 
 The package automatically constructs meaningful preflights, evaluates browser-relevant headers, and reports method, requested-header, credentials, origin, `Vary`, exposed-header, and max-age mismatches. The scenario API accepts header names only, so `Accept`, `Accept-Language`, `Content-Language`, `Content-Type`, and `Range` names conservatively force a preflight for both safe and unsafe caller-provided values; include those names for default or per-request handler headers. Browser-safelisted response headers do not need an expose grant, and malformed CORS metadata fails closed. It does not own application startup, contact an origin, use browser automation, or prove authentication, authorization, CSRF protection, or other server-side security properties.
 
+Scenario targets must be relative application paths; URI authorities, schemes, backslashes, UNC/device paths, and root-relative Windows paths are rejected before I/O. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods, browser-managed headers, and conditional override headers (`X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override`) are rejected before I/O. `Set-Cookie` and `Set-Cookie2` cannot be asserted as exposed response headers because browsers forbid exposing them.
+
 See the repository [CORS contract guide](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/cors-contracts.md) for the complete usage and caller-owned privacy boundary.
 
 This package targets `.NET 8` (`net8.0`). Verified support for this release line is Windows x64, Linux x64, and macOS with a compatible ASP.NET Core test host. See the repository's [platform support matrix](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/platform-support.md).
