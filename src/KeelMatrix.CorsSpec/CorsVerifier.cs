@@ -19,7 +19,7 @@ public sealed class CorsVerifier
 
     /// <summary>Creates a verifier that uses the supplied client for actual requests and a dedicated handler for generated preflights.</summary>
     /// <param name="client">The caller-owned client used for actual requests and its base address.</param>
-    /// <param name="preflightHandlerFactory">Creates a clean handler for each generated preflight. The handler must not add caller-wide or credential headers; the verifier disposes each returned handler after the preflight completes.</param>
+    /// <param name="preflightHandlerFactory">Creates a clean handler for each generated preflight. The handler must not add caller-wide or credential headers; the verifier disposes each returned handler after the preflight completes and applies the supplied client's timeout and cancellation boundary.</param>
     public CorsVerifier(HttpClient client, Func<HttpMessageHandler> preflightHandlerFactory)
         : this(client, preflightHandlerFactory, TelemetryHost.Create(), TelemetryHost.IsSuppressed)
     {
@@ -174,9 +174,12 @@ public sealed class CorsVerifier
             throw new InvalidOperationException("The preflight handler factory returned null.");
         }
 
-        using var invoker = new HttpMessageInvoker(handler, disposeHandler: true);
+        using var preflightClient = new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = _client.Timeout
+        };
         preflight.RequestUri = ResolvePreflightUri(preflight.RequestUri);
-        return await invoker.SendAsync(preflight, cancellationToken).ConfigureAwait(false);
+        return await preflightClient.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
     }
 
     private Uri ResolvePreflightUri(Uri? relativeUri)

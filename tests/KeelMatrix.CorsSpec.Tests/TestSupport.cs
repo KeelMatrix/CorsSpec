@@ -20,12 +20,20 @@ internal sealed class RecordingHandler : HttpMessageHandler
 
     public List<HttpRequestMessage> Requests { get; }
 
+    public bool IsDisposed { get; private set; }
+
     public HttpMessageHandler CreateSibling() => new RecordingHandler(_responseFactory, Requests);
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(CloneRequest(request));
         return Task.FromResult(_responseFactory(request));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        IsDisposed = true;
+        base.Dispose(disposing);
     }
 
     private static HttpRequestMessage CloneRequest(HttpRequestMessage source)
@@ -37,6 +45,40 @@ internal sealed class RecordingHandler : HttpMessageHandler
         }
 
         return clone;
+    }
+}
+
+internal sealed class BlockingHandler : HttpMessageHandler
+{
+    public bool IsDisposed { get; private set; }
+
+    public int RequestCount { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        RequestCount++;
+        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        return new HttpResponseMessage(HttpStatusCode.NoContent);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        IsDisposed = true;
+        base.Dispose(disposing);
+    }
+}
+
+internal sealed class FaultingHandler : HttpMessageHandler
+{
+    public bool IsDisposed { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromException<HttpResponseMessage>(new HttpRequestException("synthetic preflight failure"));
+
+    protected override void Dispose(bool disposing)
+    {
+        IsDisposed = true;
+        base.Dispose(disposing);
     }
 }
 

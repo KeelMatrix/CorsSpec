@@ -7,6 +7,7 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 ### Added
 
 - Upcoming changes are recorded here before release.
+- Factory-created preflights now inherit the caller's `HttpClient.Timeout` and cancellation boundary; finite timeout failures are reported as `NetworkFailure`, do not send the actual request, and still dispose returned handlers.
 - Provides a dedicated preflight handler factory so generated `OPTIONS` requests contain only browser preflight metadata while actual requests retain caller defaults and handler behavior; clients with default request headers fail closed unless the dedicated factory is supplied.
 - Accepts raw scheme-like `://` text in relative target query and fragment data while continuing to reject schemes and authorities at the start of a target.
 - Requires successful (200–299) preflight responses before sending an allowed actual request, and reports a dedicated preflight-status failure.

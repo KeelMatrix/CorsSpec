@@ -177,6 +177,121 @@ public sealed class RequestGenerationTests
         Assert.Equal("session=handler", actual.Headers.GetValues("Cookie").Single());
     }
 
+    [Theory]
+    [InlineData("PATCH", null)]
+    [InlineData("GET", "X-Trace")]
+    public async Task Factory_preflight_timeout_is_reported_and_does_not_send_actual_request(string method, string? requestedHeader)
+    {
+        var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
+        var preflightHandler = new BlockingHandler();
+        using var client = new HttpClient(actualHandler)
+        {
+            BaseAddress = new Uri("https://service.test"),
+            Timeout = TimeSpan.FromMilliseconds(100)
+        };
+        var scenario = new CorsScenario(
+            "/orders",
+            "https://app.example",
+            new HttpMethod(method),
+            requestedHeader is null ? null : new[] { requestedHeader });
+
+        var operation = new CorsVerifier(client, () => preflightHandler).VerifyAsync(new CorsContract(
+            scenario,
+            CorsExpectation.Allowed()));
+        var result = await operation.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.NetworkFailure);
+        Assert.True(result.PreflightSent);
+        Assert.False(result.ActualRequestSent);
+        Assert.Equal(1, preflightHandler.RequestCount);
+        Assert.True(preflightHandler.IsDisposed);
+        Assert.Empty(actualHandler.Requests);
+    }
+
+    [Fact]
+    public async Task Factory_preflight_explicit_cancellation_remains_prompt_and_disposes_handler()
+    {
+        var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
+        var preflightHandler = new BlockingHandler();
+        using var client = new HttpClient(actualHandler)
+        {
+            BaseAddress = new Uri("https://service.test"),
+            Timeout = Timeout.InfiniteTimeSpan
+        };
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        var contract = new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Patch),
+            CorsExpectation.Allowed());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new CorsVerifier(client, () => preflightHandler).VerifyAsync(contract, cancellation.Token));
+
+        Assert.True(preflightHandler.IsDisposed);
+        Assert.Empty(actualHandler.Requests);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Factory_preflight_timeout_does_not_stall_later_matrix_cells(int hangingCell)
+    {
+        var actualHandler = new RecordingHandler(_ => ResponseFactory.Cors());
+        var factoryDisposals = new List<Func<bool>>();
+        var factoryCall = 0;
+        using var client = new HttpClient(actualHandler)
+        {
+            BaseAddress = new Uri("https://service.test"),
+            Timeout = TimeSpan.FromMilliseconds(100)
+        };
+        var contracts = Enumerable.Range(0, 3)
+            .Select(_ => new CorsContract(
+                new CorsScenario("/orders", "https://app.example", HttpMethod.Patch),
+                CorsExpectation.Allowed()))
+            .ToArray();
+        var matrix = new CorsMatrix(contracts);
+
+        var operation = new CorsVerifier(client, () =>
+        {
+            if (factoryCall++ == hangingCell)
+            {
+                var blockingHandler = new BlockingHandler();
+                factoryDisposals.Add(() => blockingHandler.IsDisposed);
+                return blockingHandler;
+            }
+
+            var recordingHandler = new RecordingHandler(_ => ResponseFactory.Cors(methods: "PATCH"));
+            factoryDisposals.Add(() => recordingHandler.IsDisposed);
+            return recordingHandler;
+        }).VerifyMatrixAsync(matrix);
+        var results = await operation.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal(3, results.Count);
+        Assert.Equal(CorsFailureKind.NetworkFailure, Assert.Single(results[hangingCell].Issues).Kind);
+        Assert.False(results[hangingCell].ActualRequestSent);
+        Assert.All(results.Where((_, index) => index != hangingCell), result => Assert.True(result.IsSuccess, result.Summary));
+        Assert.All(factoryDisposals, isDisposed => Assert.True(isDisposed()));
+    }
+
+    [Fact]
+    public async Task Factory_preflight_fault_is_network_failure_and_disposes_handler()
+    {
+        var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
+        var preflightHandler = new FaultingHandler();
+        using var client = new HttpClient(actualHandler) { BaseAddress = new Uri("https://service.test") };
+        var contract = new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Patch),
+            CorsExpectation.Allowed());
+
+        var result = await new CorsVerifier(client, () => preflightHandler).VerifyAsync(contract);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.NetworkFailure);
+        Assert.True(preflightHandler.IsDisposed);
+        Assert.Empty(actualHandler.Requests);
+    }
+
     [Fact]
     public async Task Default_headers_fail_closed_without_a_dedicated_preflight_handler()
     {
