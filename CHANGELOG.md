@@ -16,7 +16,8 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 - Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata against the checked-out candidate SHA; the package-consumer smoke covers simple and custom preflight behavior on Windows, Linux, and macOS.
 - Builds browser-style preflights with `Accept: */*`, preserves exact casing for custom method allow-list matching, and permits preflighted `GET`, `HEAD`, and `POST` scenarios without requiring an allow-method token while still rejecting malformed lists.
 - Accepts only HTTP optional whitespace (`SP` and `HTAB`) around CORS response metadata and fails closed on Unicode whitespace, invalid controls, obs-text boundaries, and malformed `Vary: Origin` lists.
-- Provides one optional, best-effort aggregate activation signal after a meaningful response-level contract verdict, with matrix executions aggregated across cells, no recurring heartbeat, no contract data fields, and `KEELMATRIX_NO_TELEMETRY=1` suppression.
+- Provides one optional, best-effort aggregate activation signal after a response-level contract verdict, with matrix executions aggregated across cells and no recurring heartbeat. The shared activation payload is allowlisted to `event`, `tool`, `tool_version`, `telemetry_version`, `schema_version`, pseudonymous project/installation hashes, `runtime`, `os`, `ci`, and `timestamp`; origins, endpoint identity, endpoint-tied methods, request/response headers, cookies, credentials, bodies, and diagnostics are excluded. `KEELMATRIX_NO_TELEMETRY=1` suppresses it.
+- Documents the shared telemetry queue, HTTPS endpoint, opt-out boundary, 90-day retention, and direct `KeelMatrix.Telemetry` privacy source of truth; core verification remains caller-owned and can be fully offline with a local test host.
 
 ## [0.1.0] - 2026-09-24
 

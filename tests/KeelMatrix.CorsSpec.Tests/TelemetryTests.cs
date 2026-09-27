@@ -34,6 +34,20 @@ public sealed class TelemetryTests
     }
 
     [Fact]
+    public async Task Failed_response_verdict_still_requests_one_activation()
+    {
+        var telemetry = new RecordingTelemetry();
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "https://other.example", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client, telemetry, () => false).VerifyAsync(AllowedSimpleContract());
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MissingOrMismatchedAllowOrigin);
+        Assert.Equal(1, telemetry.ActivationCount);
+    }
+
+    [Fact]
     public async Task Invalid_contract_does_not_emit_activation()
     {
         var telemetry = new RecordingTelemetry();
