@@ -20,7 +20,7 @@ public sealed class CorsVerificationResult
         PreflightStatusCode = preflightStatusCode;
         ActualRequestSent = actualRequestSent;
         ActualStatusCode = actualStatusCode;
-        Issues = issues;
+        Issues = Array.AsReadOnly(issues.ToArray());
     }
 
     /// <summary>Gets the contract that was evaluated.</summary>

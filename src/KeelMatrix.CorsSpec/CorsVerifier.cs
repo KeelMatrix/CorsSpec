@@ -127,7 +127,7 @@ public sealed class CorsVerifier
             results.Add(await VerifyAsync(contract, cancellationToken).ConfigureAwait(false));
         }
 
-        return results;
+        return results.AsReadOnly();
     }
 
     internal static HttpRequestMessage CreatePreflightRequest(CorsScenario scenario)
@@ -210,8 +210,14 @@ internal static class CorsHeaderEvaluator
     {
         var issues = new List<CorsIssue>();
         var originPermission = EvaluateOrigin(response, scenario, expectation, issues);
-        var methodPermission = HasToken(response, AllowMethods, scenario.Method.Method);
-        var headersPermission = scenario.RequestedHeaders.All(header => HasToken(response, AllowHeaders, header));
+        var methodPermission = HasToken(response, AllowMethods, scenario.Method.Method, !scenario.UseCredentials);
+        var headersPermission = scenario.RequestedHeaders.All(header => HasToken(response, AllowHeaders, header, !scenario.UseCredentials));
+        var statusPermission = response.IsSuccessStatusCode;
+
+        if (expectation.IsAllowed && !statusPermission)
+        {
+            issues.Add(new CorsIssue(CorsFailureKind.PreflightStatusRejected, "The preflight response did not return an HTTP 2xx status required for browser CORS permission."));
+        }
 
         if (expectation.IsAllowed)
         {
@@ -227,10 +233,10 @@ internal static class CorsHeaderEvaluator
 
             EvaluateCredentialAndVary(response, scenario, expectation, originPermission, issues);
             EvaluateMaxAge(response, expectation, issues);
-            return new CorsEvaluation(originPermission && methodPermission && headersPermission && HasCredentialPermission(response, scenario), issues.ToArray());
+            return new CorsEvaluation(statusPermission && originPermission && methodPermission && headersPermission && HasCredentialPermission(response, scenario), issues.ToArray());
         }
 
-        var grants = originPermission && methodPermission && headersPermission && HasCredentialPermission(response, scenario);
+        var grants = statusPermission && originPermission && methodPermission && headersPermission && HasCredentialPermission(response, scenario);
         return new CorsEvaluation(grants, issues.ToArray());
     }
 
@@ -243,7 +249,7 @@ internal static class CorsHeaderEvaluator
         if (expectation.IsAllowed)
         {
             EvaluateCredentialAndVary(response, scenario, expectation, originPermission, issues);
-            EvaluateExposedHeaders(response, expectation, issues);
+            EvaluateExposedHeaders(response, scenario, expectation, issues);
             return new CorsEvaluation(originPermission && credentialsPermission, issues.ToArray());
         }
 
@@ -309,19 +315,14 @@ internal static class CorsHeaderEvaluator
         }
     }
 
-    private static void EvaluateExposedHeaders(HttpResponseMessage response, CorsExpectation expectation, List<CorsIssue> issues)
+    private static void EvaluateExposedHeaders(HttpResponseMessage response, CorsScenario scenario, CorsExpectation expectation, List<CorsIssue> issues)
     {
         if (expectation.ExpectedExposedHeaders.Count == 0)
         {
             return;
         }
 
-        var exposed = GetValues(response, ExposeHeaders)
-            .SelectMany(static value => value.Split(','))
-            .Select(static value => value.Trim())
-            .Where(static value => value.Length != 0)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (expectation.ExpectedExposedHeaders.Any(header => !exposed.Contains(header)))
+        if (expectation.ExpectedExposedHeaders.Any(header => !HasToken(response, ExposeHeaders, header, !scenario.UseCredentials)))
         {
             issues.Add(new CorsIssue(CorsFailureKind.ExposedHeadersMismatch, "The response did not expose every asserted response header."));
         }
@@ -348,22 +349,33 @@ internal static class CorsHeaderEvaluator
             return true;
         }
 
-        return GetValues(response, AllowCredentials).Count == 1 &&
-               GetValues(response, AllowCredentials)[0].Trim().Equals("true", StringComparison.OrdinalIgnoreCase) &&
+        var values = GetValues(response, AllowCredentials);
+        return values.Count == 1 &&
+               values[0].Equals("true", StringComparison.Ordinal) &&
                !IsWildcardOrigin(response);
     }
 
     private static bool IsWildcardOrigin(HttpResponseMessage response) =>
         GetValues(response, AllowOrigin).Count == 1 && GetValues(response, AllowOrigin)[0].Trim() == "*";
 
-    private static bool HasToken(HttpResponseMessage response, string headerName, string expected)
+    private static bool HasToken(HttpResponseMessage response, string headerName, string expected, bool allowWildcard)
     {
+        if (headerName == ExposeHeaders && IsCorsNonWildcardName(headerName, expected))
+        {
+            return false;
+        }
+
         var values = GetValues(response, headerName);
         return values
             .SelectMany(static value => value.Split(','))
             .Select(static value => value.Trim())
-            .Any(value => value.Equals(expected, StringComparison.OrdinalIgnoreCase));
+            .Any(value => value.Equals(expected, StringComparison.OrdinalIgnoreCase) ||
+                (allowWildcard && value == "*" && !IsCorsNonWildcardName(headerName, expected)));
     }
+
+    private static bool IsCorsNonWildcardName(string headerName, string expected) =>
+        (headerName == AllowHeaders && expected.Equals("Authorization", StringComparison.OrdinalIgnoreCase)) ||
+        (headerName == ExposeHeaders && (expected.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) || expected.Equals("Set-Cookie2", StringComparison.OrdinalIgnoreCase)));
 
     private static List<string> GetValues(HttpResponseMessage response, string headerName)
     {

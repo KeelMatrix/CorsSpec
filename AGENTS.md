@@ -6,7 +6,7 @@
 - `tests/KeelMatrix.CorsSpec.Tests` contains request-generation, header-interpretation, validation, and privacy tests.
 - `tests/KeelMatrix.CorsSpec.IntegrationTests` runs the verifier against real ASP.NET Core `TestServer` middleware and endpoint policies.
 - `tests/PackageSmoke` is a fresh non-packable consumer that references the built package through an isolated local feed.
-- `scripts/Validate.ps1` is the local CI-equivalent gate. It also checks package contents and reports the founder-owned icon prerequisite.
+- `scripts/Validate.ps1` is the local CI-equivalent gate. It also checks package contents and reports the required icon prerequisite.
 - `docs/cors-contracts.md` contains the deeper consumer guide.
 
 ## Commands
@@ -22,9 +22,9 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 
 - The shipping library has no ASP.NET Core, test-framework, browser, or telemetry dependency.
 - `Origin` is never a destination. Only the caller's `HttpClient` performs I/O.
-- CORS verdicts are based on browser-relevant headers, never status alone.
+- Allowed preflight verdicts require both a successful HTTP status and browser-relevant headers; actual-response status is never sufficient by itself.
 - Diagnostics never copy response bodies, cookies, authorization values, bearer tokens, or arbitrary response headers.
-- The root `icon.png` is founder-owned. Do not create, copy, modify, inspect, delete, commit, or push icon bytes.
+- The root `icon.png` is a required release asset. Do not create, copy, modify, inspect, delete, commit, or push icon bytes.
 - Tests and consumers are explicitly non-packable and are not included in the public package.
 
 ## Validation

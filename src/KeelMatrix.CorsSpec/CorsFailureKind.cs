@@ -12,24 +12,27 @@ public enum CorsFailureKind
     /// <summary>The preflight did not grant the requested method.</summary>
     MethodRejected,
 
+    /// <summary>The preflight response did not return a successful HTTP status.</summary>
+    PreflightStatusRejected = 10,
+
     /// <summary>The preflight did not grant one or more requested headers.</summary>
-    RequestedHeaderRejected,
+    RequestedHeaderRejected = 3,
 
     /// <summary>The response did not satisfy the credentialed CORS contract.</summary>
-    CredentialsMismatch,
+    CredentialsMismatch = 4,
 
     /// <summary>The response lacked the required Origin variation marker.</summary>
-    MissingVaryOrigin,
+    MissingVaryOrigin = 5,
 
     /// <summary>The response did not expose the asserted response headers.</summary>
-    ExposedHeadersMismatch,
+    ExposedHeadersMismatch = 6,
 
     /// <summary>The preflight did not return the asserted cache duration.</summary>
-    MaxAgeMismatch,
+    MaxAgeMismatch = 7,
 
     /// <summary>The response granted a scenario that was expected to be denied.</summary>
-    UnexpectedCorsPermission,
+    UnexpectedCorsPermission = 8,
 
     /// <summary>The caller's HttpClient could not complete a request.</summary>
-    NetworkFailure
+    NetworkFailure = 9
 }

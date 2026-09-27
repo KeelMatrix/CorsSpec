@@ -38,7 +38,7 @@ var denied = new CorsContract(
 
 ## What is checked
 
-CorsSpec constructs a preflight for non-simple methods or requested headers, then executes the actual request when the preflight grants access. It interprets `Access-Control-Allow-Origin`, methods, requested headers, credentials, exposed headers, max-age, and `Vary: Origin`. A `204` preflight is not automatically a pass: a missing method or requested header still fails an allowed contract.
+CorsSpec constructs a preflight for non-simple methods or requested headers, then executes the actual request only when a 2xx preflight grants access. It interprets `Access-Control-Allow-Origin`, methods, requested headers, credentials, exposed headers, max-age, and `Vary: Origin`. A `204` preflight is not automatically a pass: a missing method or requested header still fails an allowed contract, and a non-2xx preflight always fails an allowed contract.
 
 Use `CorsMatrix` for a small set of contracts:
 
@@ -47,11 +47,11 @@ var matrix = new CorsMatrix(new[] { allowed, denied });
 var results = await new CorsVerifier(client).VerifyMatrixAsync(matrix);
 ```
 
-See [docs/cors-contracts.md](docs/cors-contracts.md) for preflight construction, middleware and endpoint policies, credentials, diagnostics, and the full limitation statement.
+See [docs/cors-contracts.md](docs/cors-contracts.md) for preflight construction, middleware and endpoint policies, credentials, diagnostics, the caller-owned network boundary, and the full limitation statement.
 
 ## Compatibility
 
-The package targets `.NET 8` (`net8.0`). Verified support for this release line is Windows x64 with a compatible ASP.NET Core test host. Linux and macOS are not currently part of the verified support claim; see the [platform support matrix](docs/platform-support.md).
+The package targets `.NET 8` (`net8.0`). Verified support for this release line is Windows x64, Linux x64, and macOS with a compatible ASP.NET Core test host; see the [platform support matrix](docs/platform-support.md).
 
 ## Important limitation
 
@@ -59,7 +59,7 @@ CORS is a browser cross-origin policy mechanism, not authentication or authoriza
 
 ## Privacy
 
-CorsSpec has no telemetry. It never sends origins, paths, headers, cookies, tokens, response bodies, or diagnostics to a service. See [PRIVACY.md](PRIVACY.md).
+CorsSpec has no telemetry or independent background network activity. It intentionally sends the scenario path, `Origin`, and preflight metadata through the caller-supplied `HttpClient`; the caller controls where that client sends requests. CorsSpec does not add cookies, tokens, or authorization values, and does not send response bodies or diagnostics to a CorsSpec service. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 

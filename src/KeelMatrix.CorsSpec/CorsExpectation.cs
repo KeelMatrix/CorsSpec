@@ -12,7 +12,7 @@ public sealed class CorsExpectation
     {
         IsAllowed = isAllowed;
         AllowWildcardOrigin = allowWildcardOrigin;
-        ExpectedExposedHeaders = expectedExposedHeaders;
+        ExpectedExposedHeaders = Array.AsReadOnly(expectedExposedHeaders.ToArray());
         ExpectedMaxAge = expectedMaxAge;
         RequireVaryOrigin = requireVaryOrigin;
     }
@@ -28,7 +28,7 @@ public sealed class CorsExpectation
         TimeSpan? expectedMaxAge = null,
         bool requireVaryOrigin = false)
     {
-        var exposed = Validation.NormalizeHeaderNames(expectedExposedHeaders, nameof(expectedExposedHeaders));
+        var exposed = Validation.NormalizeHeaderNames(expectedExposedHeaders, nameof(expectedExposedHeaders), rejectBrowserManaged: false);
         if (expectedMaxAge is { } maxAge)
         {
             Validation.ValidateMaxAge(maxAge, nameof(expectedMaxAge));

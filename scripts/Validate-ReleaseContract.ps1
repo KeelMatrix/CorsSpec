@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$projectPath = Join-Path $root 'src\KeelMatrix.CorsSpec\KeelMatrix.CorsSpec.csproj'
+$projectPath = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $propsPath = Join-Path $root 'Directory.Build.props'
 $changelogPath = Join-Path $root 'CHANGELOG.md'
 
@@ -70,6 +70,14 @@ if (-not [string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
     $actualArtifacts = @(Get-ChildItem -LiteralPath $artifactRoot -File | Where-Object { $_.Extension -in @('.nupkg', '.snupkg') } | Select-Object -ExpandProperty Name | Sort-Object)
     if ((Compare-Object -ReferenceObject $expectedArtifacts -DifferenceObject $actualArtifacts) -ne $null) {
         throw "Unexpected release artifact set. Expected: $($expectedArtifacts -join ', '). Actual: $($actualArtifacts -join ', ')."
+    }
+
+    $inspectionScript = Join-Path $PSScriptRoot 'Inspect-Package.ps1'
+    & pwsh -NoProfile -File $inspectionScript `
+        -PackagePath (Join-Path $artifactRoot "$packageId.$version.nupkg") `
+        -SymbolsPath (Join-Path $artifactRoot "$packageId.$version.snupkg")
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Release artifacts failed content and identity inspection.'
     }
 }
 

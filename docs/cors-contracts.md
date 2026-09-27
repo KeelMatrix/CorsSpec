@@ -10,13 +10,17 @@
 - `Access-Control-Request-Method` set to the scenario method;
 - `Access-Control-Request-Headers` set to the normalized requested header names.
 
-For an allowed preflight, CorsSpec checks the allow-origin, allow-methods, allow-headers, credentials, max-age when asserted, and required `Vary: Origin` behavior, then sends the actual request. For a denied preflight, the actual request is not sent when the preflight blocks access, matching browser behavior.
+For an allowed preflight, CorsSpec requires a 2xx response and checks the allow-origin, allow-methods, allow-headers, credentials, max-age when asserted, and required `Vary: Origin` behavior, then sends the actual request. A non-2xx response fails an allowed preflight even when its CORS headers are otherwise permissive. For a denied preflight, the actual request is not sent when the preflight blocks access, matching browser behavior.
+
+The scenario API accepts header names only. Because it cannot model header values, `Range` and `Content-Type` names conservatively force a preflight; browser-managed, forbidden, and CORS protocol header names are rejected before I/O.
 
 CorsSpec does not synthesize cookies, authorization headers, or request bodies. A caller-provided handler may supply those as part of its own test setup; CorsSpec never includes them in diagnostics.
 
 ## Expectations
 
 `CorsExpectation.Allowed()` expects the requested origin to be granted. Set `allowWildcardOrigin: true` when a non-credentialed contract intentionally accepts `Access-Control-Allow-Origin: *`. Set `requireVaryOrigin: true` when a policy varies its response by origin and the cache-safety marker is part of the contract. Credentialed contracts cannot use a wildcard expectation and fail before a request is sent when configured that way.
+
+`CorsScenario.Origin` must be the canonical browser-serialized HTTP(S) origin, such as `https://app.example` without a trailing slash or explicit default port; the opaque `null` origin is also supported. Non-canonical casing, paths, queries, fragments, credentials, and unsupported schemes are rejected before I/O.
 
 `CorsExpectation.Denied()` checks browser-relevant headers rather than a status code. A `200`, `204`, or `401` can all be a correct denied response if the CORS headers do not grant the scenario.
 
@@ -38,7 +42,7 @@ Configure the application under test with its normal `AddCors` and `UseCors`/end
 
 ## Network and privacy boundary
 
-The origin is request metadata, not a destination. CorsSpec never resolves or contacts it. The only requests are sent through the `HttpClient` supplied by the caller. The package has no telemetry and performs no background network activity.
+The origin is request metadata, not a destination. CorsSpec never resolves or contacts it. The scenario path, `Origin`, and preflight metadata are intentionally sent through the `HttpClient` supplied by the caller. The caller controls that client's routing and any caller-added headers. CorsSpec has no telemetry or independent/background network activity and does not copy response bodies, credentials, or diagnostics to a CorsSpec service.
 
 ## Security limitation
 

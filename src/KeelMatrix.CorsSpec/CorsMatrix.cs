@@ -9,23 +9,28 @@ public sealed class CorsMatrix
     public CorsMatrix(IEnumerable<CorsContract> contracts)
     {
         ArgumentNullException.ThrowIfNull(contracts);
-        var values = contracts.ToArray();
-        if (values.Length == 0)
+        var values = new List<CorsContract>(MaximumContracts);
+        foreach (var contract in contracts)
+        {
+            if (contract is null)
+            {
+                throw new ArgumentException("A CORS matrix cannot contain a null contract.", nameof(contracts));
+            }
+
+            if (values.Count == MaximumContracts)
+            {
+                throw new ArgumentException($"A CORS matrix cannot contain more than {MaximumContracts} contracts.", nameof(contracts));
+            }
+
+            values.Add(contract);
+        }
+
+        if (values.Count == 0)
         {
             throw new ArgumentException("A CORS matrix must contain at least one contract.", nameof(contracts));
         }
 
-        if (values.Length > MaximumContracts)
-        {
-            throw new ArgumentException($"A CORS matrix cannot contain more than {MaximumContracts} contracts.", nameof(contracts));
-        }
-
-        if (values.Any(static contract => contract is null))
-        {
-            throw new ArgumentException("A CORS matrix cannot contain a null contract.", nameof(contracts));
-        }
-
-        Contracts = values;
+        Contracts = values.AsReadOnly();
     }
 
     /// <summary>Gets the contracts in execution order.</summary>

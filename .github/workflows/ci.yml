@@ -17,7 +17,18 @@ env:
 
 jobs:
   validate:
-    runs-on: windows-latest
+    name: Validate (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Check out repository
@@ -36,6 +47,6 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: nuget-packages
+          name: nuget-packages-${{ matrix.name }}
           path: ./artifacts/packages
           if-no-files-found: error

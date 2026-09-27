@@ -53,6 +53,5 @@ public sealed class CorsScenario
     private static bool IsSafelistedRequestHeader(string name) =>
         name.Equals("Accept", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("Accept-Language", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Range", StringComparison.OrdinalIgnoreCase);
+        name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase);
 }

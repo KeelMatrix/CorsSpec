@@ -6,13 +6,11 @@ This document defines the verified platform boundary for the `KeelMatrix.CorsSpe
 
 | Platform | Runtime and host | Evidence | Support status |
 | --- | --- | --- | --- |
-| Windows x64 | Windows 10 x64, repository-selected .NET 8 SDK (8.0.408 with `latestPatch`, resolved as 8.0.425), ASP.NET Core 8.0.31 | Release integration tests and the isolated package-consumer smoke test run against a real ASP.NET Core `TestServer`; the smoke test installs the built `.nupkg` and verifies one allowed and one denied contract. | Verified for this release line |
+| Windows x64 | Windows 10 x64, repository-selected .NET 8 SDK, ASP.NET Core 8 | The Windows CI leg runs the Release integration tests and isolated package-consumer smoke test against a real ASP.NET Core `TestServer`; the smoke test installs the built `.nupkg` and verifies one allowed and one denied contract. | Verified for this release line |
+| Linux x64 | Ubuntu x64, repository-selected .NET 8 SDK, ASP.NET Core 8 | The Linux CI leg runs the same Release integration tests and isolated built-package consumer smoke test with an isolated NuGet cache and temporary directory. | Verified for this release line |
+| macOS | macOS hosted runner, repository-selected .NET 8 SDK, ASP.NET Core 8 | The macOS CI leg runs the same Release integration tests and isolated built-package consumer smoke test with an isolated NuGet cache and temporary directory. | Verified for this release line |
 
-## Not yet verified
-
-Linux and macOS are not part of the verified support claim for this release line. This repository does not currently provide package-consumer runs on those operating systems, so their behavior remains unverified even though the library has no intentional OS-specific implementation.
-
-Do not infer Linux or macOS support from a Windows run. Extend this matrix only after the same built-package consumer and ASP.NET Core integration evidence has been run on the relevant operating system.
+The support claim depends on all three CI legs remaining green. The validation scripts use platform-native path joins, isolated temporary/cache paths, and the same package-consumer and ASP.NET Core evidence on each runner.
 
 ## Consumer boundary
 

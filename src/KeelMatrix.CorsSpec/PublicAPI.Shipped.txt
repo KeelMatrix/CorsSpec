@@ -18,6 +18,7 @@ KeelMatrix.CorsSpec.CorsFailureKind.MethodRejected = 2 -> KeelMatrix.CorsSpec.Co
 KeelMatrix.CorsSpec.CorsFailureKind.MissingOrMismatchedAllowOrigin = 1 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.MissingVaryOrigin = 5 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.NetworkFailure = 9 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.PreflightStatusRejected = 10 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.RequestedHeaderRejected = 3 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.UnexpectedCorsPermission = 8 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsIssue

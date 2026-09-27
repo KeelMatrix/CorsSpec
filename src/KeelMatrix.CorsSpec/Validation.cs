@@ -11,7 +11,9 @@ internal static class Validation
             throw new ArgumentException("The target path cannot contain line breaks.", nameof(path));
         }
 
-        if (Uri.TryCreate(path, UriKind.Absolute, out _))
+        if (path.StartsWith("//", StringComparison.Ordinal) ||
+            path.Contains("://", StringComparison.Ordinal) ||
+            System.Text.RegularExpressions.Regex.IsMatch(path, "^[A-Za-z][A-Za-z0-9+.-]*:"))
         {
             throw new ArgumentException("The target must be a relative application path; use the caller's HttpClient to select the destination.", nameof(path));
         }
@@ -33,21 +35,30 @@ internal static class Validation
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
             string.IsNullOrEmpty(uri.Host) || uri.AbsolutePath != "/" ||
             !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) ||
-            !string.IsNullOrEmpty(uri.UserInfo))
+            !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.Equals(origin, uri.GetLeftPart(UriPartial.Authority), StringComparison.Ordinal))
         {
-            throw new ArgumentException("Origin must be an HTTP(S) origin without a path, query, fragment, or credentials.", nameof(origin));
+            throw new ArgumentException("Origin must be a canonical HTTP(S) browser origin without a path, query, fragment, credentials, or explicit default port.", nameof(origin));
         }
 
         return origin;
     }
 
     public static string RequireHeaderName(string name, string parameterName)
+        => RequireHeaderName(name, parameterName, rejectBrowserManaged: true);
+
+    private static string RequireHeaderName(string name, string parameterName, bool rejectBrowserManaged)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         if (name.Any(char.IsWhiteSpace) || name.Contains('\r') || name.Contains('\n') || !IsToken(name))
         {
             throw new ArgumentException($"'{parameterName}' contains an invalid HTTP header name.", parameterName);
+        }
+
+        if (rejectBrowserManaged && IsBrowserManagedHeader(name))
+        {
+            throw new ArgumentException($"'{parameterName}' contains a browser-managed or CORS protocol header that script cannot request.", parameterName);
         }
 
         return name;
@@ -57,7 +68,7 @@ internal static class Validation
     {
         foreach (var character in value)
         {
-            if (char.IsLetterOrDigit(character) || "!#$%&'*+-.^_`|~".Contains(character))
+            if (character <= 0x7f && (character is >= '0' and <= '9' || character is >= 'A' and <= 'Z' || character is >= 'a' and <= 'z' || "!#$%&'*+-.^_`|~".Contains(character)))
             {
                 continue;
             }
@@ -68,7 +79,7 @@ internal static class Validation
         return value.Length != 0;
     }
 
-    public static IReadOnlyList<string> NormalizeHeaderNames(IEnumerable<string>? names, string parameterName)
+    public static IReadOnlyList<string> NormalizeHeaderNames(IEnumerable<string>? names, string parameterName, bool rejectBrowserManaged = true)
     {
         if (names is null)
         {
@@ -78,11 +89,35 @@ internal static class Validation
         var normalized = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in names)
         {
-            normalized.Add(RequireHeaderName(name, parameterName));
+            normalized.Add(RequireHeaderName(name, parameterName, rejectBrowserManaged));
         }
 
-        return normalized.ToArray();
+        return Array.AsReadOnly(normalized.ToArray());
     }
+
+    private static bool IsBrowserManagedHeader(string name) =>
+        name.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith("Proxy-", StringComparison.OrdinalIgnoreCase) ||
+        name.StartsWith("Sec-", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Accept-Charset", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Connection", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie2", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Date", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("DNT", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Expect", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Keep-Alive", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Origin", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("TE", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Trailer", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Upgrade", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Via", StringComparison.OrdinalIgnoreCase);
 
     public static void ValidateMaxAge(TimeSpan value, string parameterName)
     {

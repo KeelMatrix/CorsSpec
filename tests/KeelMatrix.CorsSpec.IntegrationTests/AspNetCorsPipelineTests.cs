@@ -21,6 +21,17 @@ public sealed class AspNetCorsPipelineTests
     }
 
     [Fact]
+    public async Task Canonical_serialized_origin_is_accepted_by_a_real_aspnet_core_policy()
+    {
+        await using var host = await TestCorsHost.CreateAsync(CorsHostMode.Global);
+        var result = await new CorsVerifier(host.Client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://global.example", HttpMethod.Get),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
     public async Task Global_policy_denies_an_origin_without_requiring_a_failure_status()
     {
         await using var host = await TestCorsHost.CreateAsync(CorsHostMode.Global);

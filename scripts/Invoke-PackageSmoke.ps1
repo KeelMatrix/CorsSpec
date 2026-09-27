@@ -1,19 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$PackageDirectory = (Join-Path $PSScriptRoot '..\artifacts\packages')
+    [string]$PackageDirectory = (Join-Path $PSScriptRoot '..' 'artifacts' 'packages')
 )
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$smoke = Join-Path $root 'tests\PackageSmoke\PackageSmoke.csproj'
+$smoke = Join-Path $root 'tests' 'PackageSmoke' 'PackageSmoke.csproj'
 $feed = (Resolve-Path $PackageDirectory).Path
 $runRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("keelmatrix-corsspec-package-smoke-" + [guid]::NewGuid().ToString('N'))
 $cache = Join-Path $runRoot 'packages'
 $httpCache = Join-Path $runRoot 'http-cache'
 $consumerOutput = Join-Path $runRoot 'consumer-output'
 $config = Join-Path $runRoot 'NuGet.config'
-$consumerBin = Join-Path $root 'tests\PackageSmoke\bin'
-$consumerObj = Join-Path $root 'tests\PackageSmoke\obj'
+$consumerBin = Join-Path $root 'tests' 'PackageSmoke' 'bin'
+$consumerObj = Join-Path $root 'tests' 'PackageSmoke' 'obj'
 $oldPackages = $env:NUGET_PACKAGES
 $oldHttpCache = $env:NUGET_HTTP_CACHE_PATH
 $exitCode = 1

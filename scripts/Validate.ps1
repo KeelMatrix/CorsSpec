@@ -9,8 +9,8 @@ param(
 $ErrorActionPreference = 'Continue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $root 'KeelMatrix.CorsSpec.sln'
-$project = Join-Path $root 'src\KeelMatrix.CorsSpec\KeelMatrix.CorsSpec.csproj'
-$packages = Join-Path $root 'artifacts\packages'
+$project = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
+$packages = Join-Path $root 'artifacts' 'packages'
 $failures = [System.Collections.Generic.List[string]]::new()
 . (Join-Path $PSScriptRoot 'Invoke-ValidationStage.ps1')
 
@@ -22,6 +22,9 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 New-Item -ItemType Directory -Force -Path $packages | Out-Null
 
 $env:KEELMATRIX_NO_TELEMETRY = '1'
+Invoke-ValidationStage -Name 'Tracked-text hygiene' -Failures $failures -Command {
+    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-TrackedText.ps1')
+}
 Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
     pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
 }
@@ -31,8 +34,8 @@ if ($Mode -eq 'Full') {
 Invoke-ValidationStage -Name 'Restore' -Failures $failures -Command { dotnet restore $solution --configfile (Join-Path $root 'NuGet.config') }
 Invoke-ValidationStage -Name 'Release build' -Failures $failures -Command { dotnet build $solution --configuration Release --no-restore }
 Invoke-ValidationStage -Name 'Formatting' -Failures $failures -Command { dotnet format $solution --no-restore --verify-no-changes }
-Invoke-ValidationStage -Name 'Unit tests' -Failures $failures -Command { dotnet test (Join-Path $root 'tests\KeelMatrix.CorsSpec.Tests\KeelMatrix.CorsSpec.Tests.csproj') --configuration Release --no-build --no-restore }
-Invoke-ValidationStage -Name 'Integration tests' -Failures $failures -Command { dotnet test (Join-Path $root 'tests\KeelMatrix.CorsSpec.IntegrationTests\KeelMatrix.CorsSpec.IntegrationTests.csproj') --configuration Release --no-build --no-restore }
+Invoke-ValidationStage -Name 'Unit tests' -Failures $failures -Command { dotnet test (Join-Path $root 'tests' 'KeelMatrix.CorsSpec.Tests' 'KeelMatrix.CorsSpec.Tests.csproj') --configuration Release --no-build --no-restore }
+Invoke-ValidationStage -Name 'Integration tests' -Failures $failures -Command { dotnet test (Join-Path $root 'tests' 'KeelMatrix.CorsSpec.IntegrationTests' 'KeelMatrix.CorsSpec.IntegrationTests.csproj') --configuration Release --no-build --no-restore }
 
 if (-not $SkipPackage) {
     Get-ChildItem -LiteralPath $packages -File -ErrorAction SilentlyContinue |
