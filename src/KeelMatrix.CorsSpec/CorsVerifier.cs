@@ -135,9 +135,10 @@ public sealed class CorsVerifier
         HttpResponseMessage? actualResponse = null;
         try
         {
+            var expectedRequest = CaptureRequestIdentity(actual);
             actualRequestSent = true;
             actualResponse = await _client.SendAsync(actual, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            EnsureNoRedirect(actual, actualResponse);
+            EnsureNoRedirect(expectedRequest, actualResponse);
             actualStatusCode = actualResponse.StatusCode;
             var actualEvaluation = CorsHeaderEvaluator.EvaluateActual(actualResponse, scenario, expectation);
             issues.AddRange(actualEvaluation.Issues);
@@ -186,7 +187,18 @@ public sealed class CorsVerifier
                     "Preflight verification cannot use a client with default request headers because they would be sent with the OPTIONS request. Supply a dedicated preflight handler factory to CorsVerifier.");
             }
 
-            return await _client.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            var expectedRequest = CaptureRequestIdentity(preflight);
+            var response = await _client.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                EnsureNoRedirect(expectedRequest, response);
+                return response;
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
         }
 
         var handler = _preflightHandlerFactory();
@@ -200,9 +212,18 @@ public sealed class CorsVerifier
             Timeout = _client.Timeout
         };
         preflight.RequestUri = ResolvePreflightUri(preflight.RequestUri);
-        var response = await preflightClient.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        EnsureNoRedirect(preflight, response);
-        return response;
+        var factoryExpectedRequest = CaptureRequestIdentity(preflight);
+        var factoryResponse = await preflightClient.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            EnsureNoRedirect(factoryExpectedRequest, factoryResponse);
+            return factoryResponse;
+        }
+        catch
+        {
+            factoryResponse.Dispose();
+            throw;
+        }
     }
 
     private Uri ResolvePreflightUri(Uri? relativeUri)
@@ -215,25 +236,47 @@ public sealed class CorsVerifier
         return new Uri(_client.BaseAddress, relativeUri);
     }
 
-    private void EnsureNoRedirect(HttpRequestMessage request, HttpResponseMessage response)
+    private ExpectedRequestIdentity CaptureRequestIdentity(HttpRequestMessage request) =>
+        new(request.Method.Method, ResolveExpectedUri(request.RequestUri));
+
+    private Uri? ResolveExpectedUri(Uri? requestUri)
     {
-        if ((int)response.StatusCode is >= 300 and < 400)
+        if (requestUri is null || requestUri.IsAbsoluteUri || _client.BaseAddress is null)
+        {
+            return requestUri;
+        }
+
+        return new Uri(_client.BaseAddress, requestUri);
+    }
+
+    private static void EnsureNoRedirect(ExpectedRequestIdentity expectedRequest, HttpResponseMessage response)
+    {
+        if (IsRedirectStatusCode(response.StatusCode))
         {
             throw new RedirectNotSupportedException("The CORS verifier does not follow redirects; the supplied transport returned a redirect response.");
         }
 
-        var expectedUri = request.RequestUri;
-        if (expectedUri is { IsAbsoluteUri: false } && _client.BaseAddress is not null)
+        var observedRequest = response.RequestMessage;
+        if (observedRequest?.RequestUri is null)
         {
-            expectedUri = new Uri(_client.BaseAddress, expectedUri);
+            throw new RedirectNotSupportedException("The supplied transport did not expose request provenance, so the response cannot be attributed to the requested CORS operation.");
         }
 
-        var observedUri = response.RequestMessage?.RequestUri;
-        if (expectedUri is not null && observedUri is not null && !UriEquals(expectedUri, observedUri))
+        if (!string.Equals(expectedRequest.Method, observedRequest.Method.Method, StringComparison.Ordinal) ||
+            expectedRequest.Uri is null ||
+            !UriEquals(expectedRequest.Uri, observedRequest.RequestUri))
         {
             throw new RedirectNotSupportedException("The supplied HttpClient followed a redirect, so the response cannot be attributed to the requested CORS operation.");
         }
     }
+
+    private static bool IsRedirectStatusCode(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.MultipleChoices or
+            HttpStatusCode.MovedPermanently or
+            HttpStatusCode.Found or
+            HttpStatusCode.SeeOther or
+            HttpStatusCode.TemporaryRedirect or
+            HttpStatusCode.PermanentRedirect;
 
     private static bool UriEquals(Uri left, Uri right) =>
         Uri.Compare(left, right, UriComponents.HttpRequestUrl, UriFormat.UriEscaped, StringComparison.Ordinal) == 0;
@@ -274,44 +317,54 @@ public sealed class CorsVerifier
 
     private System.Collections.ObjectModel.ReadOnlyCollection<string> GetPreflightHeaderNames(CorsScenario scenario)
     {
-        var names = new List<string>();
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var potentiallyUnsafeNames = new List<string>();
         long safelistValueSize = 0;
         foreach (var name in scenario.RequestedHeaders)
         {
-            var values = scenario.RequestHeaders
+            var explicitValues = scenario.RequestHeaders
                 .Where(header => header.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 .Select(static header => header.Value)
                 .ToArray();
-            if (_client.DefaultRequestHeaders.TryGetValues(name, out var defaultValues))
-            {
-                values = values.Concat(defaultValues).ToArray();
-            }
 
-            if (values.Length == 0)
+            var values = explicitValues.Length != 0
+                ? explicitValues
+                : _client.DefaultRequestHeaders.TryGetValues(name, out var defaultValues)
+                    ? defaultValues.ToArray()
+                    : Array.Empty<string>();
+            var normalizedValues = values
+                .Select(value => name.Equals("Range", StringComparison.OrdinalIgnoreCase)
+                    ? value
+                    : Validation.NormalizeRequestHeaderValue(name, value))
+                .ToArray();
+
+            if (normalizedValues.Length == 0)
             {
                 if (!CorsScenario.IsNameSafelistedWithoutValue(name))
                 {
                     names.Add(name);
                 }
             }
-            else if (values.Any(value => !Validation.IsCorsSafelistedRequestHeader(name, value)))
+            else if (normalizedValues.Any(value => !Validation.IsCorsSafelistedRequestHeader(name, value)))
             {
                 names.Add(name);
             }
             else
             {
                 potentiallyUnsafeNames.Add(name);
-                safelistValueSize += values.Sum(static value => (long)value.Length);
+                safelistValueSize += normalizedValues.Sum(Validation.GetUtf8ByteCount);
             }
         }
 
         if (safelistValueSize > 1024)
         {
-            names.AddRange(potentiallyUnsafeNames);
+            foreach (var name in potentiallyUnsafeNames)
+            {
+                names.Add(name);
+            }
         }
 
-        return names.AsReadOnly();
+        return Array.AsReadOnly(names.ToArray());
     }
 
     internal static HttpRequestMessage CreatePreflightRequest(CorsScenario scenario, IReadOnlyList<string> preflightHeaderNames)
@@ -336,15 +389,17 @@ public sealed class CorsVerifier
         AddOrigin(request, scenario.Origin);
         foreach (var header in scenario.RequestHeaders)
         {
-            if (header.Name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
-                header.Name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase))
+            if (header.Name.StartsWith("Content-", StringComparison.OrdinalIgnoreCase))
             {
                 request.Content ??= new ByteArrayContent(Array.Empty<byte>());
-                request.Content.Headers.TryAddWithoutValidation(header.Name, header.Value);
+                if (!request.Content.Headers.TryAddWithoutValidation(header.Name, header.Value))
+                {
+                    throw new ArgumentException($"The request header '{header.Name}' could not be serialized.", nameof(scenario));
+                }
             }
-            else
+            else if (!request.Headers.TryAddWithoutValidation(header.Name, header.Value))
             {
-                request.Headers.TryAddWithoutValidation(header.Name, header.Value);
+                throw new ArgumentException($"The request header '{header.Name}' could not be serialized.", nameof(scenario));
             }
         }
 
@@ -365,6 +420,8 @@ public sealed class CorsVerifier
         HttpStatusCode? actualStatusCode,
         List<CorsIssue> issues) =>
         new(contract, isSuccess, preflightSent, preflightStatusCode, actualRequestSent, actualStatusCode, issues.ToArray());
+
+    private readonly record struct ExpectedRequestIdentity(string Method, Uri? Uri);
 }
 
 internal readonly record struct CorsEvaluation(bool GrantsCorsAccess, IReadOnlyList<CorsIssue> Issues);
@@ -535,6 +592,13 @@ internal static class CorsHeaderEvaluator
 
     private static void EvaluateExposedHeaders(HttpResponseMessage response, CorsScenario scenario, CorsExpectation expectation, List<CorsIssue> issues)
     {
+        var rawValues = GetValues(response, ExposeHeaders);
+        if (rawValues.Count != 0 && !TryParseCorsList(rawValues, ExposeHeaders, out _))
+        {
+            issues.Add(new CorsIssue(CorsFailureKind.ExposedHeadersMismatch, "The response contained malformed Access-Control-Expose-Headers metadata."));
+            return;
+        }
+
         if (expectation.ExpectedExposedHeaders.Count == 0)
         {
             return;
@@ -625,7 +689,10 @@ internal static class CorsHeaderEvaluator
     }
 
     private static bool TryParseCorsList(IReadOnlyList<string> values, string headerName, out IReadOnlyList<string> tokens)
-        => TryParseHttpTokenList(values, out tokens, allowWildcardMembers: headerName == AllowHeaders);
+        => TryParseHttpTokenList(
+            values,
+            out tokens,
+            allowWildcardMembers: headerName == AllowHeaders || headerName == AllowMethods || headerName == ExposeHeaders);
 
     private static bool TryParseDeltaSeconds(string value, out long seconds)
     {
@@ -716,7 +783,7 @@ internal static class CorsHeaderEvaluator
             }
         }
 
-        if (parsed.Count == 0 || (!allowWildcardMembers && parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal)))
+        if (values.Count == 0 || (!allowWildcardMembers && parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal)))
         {
             tokens = Array.Empty<string>();
             return false;

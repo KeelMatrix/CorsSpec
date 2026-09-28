@@ -124,7 +124,7 @@ public sealed class AspNetCorsPipelineTests
             ("Cookie", "session=synthetic"));
         using var client = new HttpClient(actualRequests) { BaseAddress = host.Client.BaseAddress };
         var contract = new CorsContract(
-            new CorsScenario("/orders", "https://credentialed.example", HttpMethod.Delete, new[] { "X-Trace" }, useCredentials: true),
+            new CorsScenario("/orders", "https://credentialed.example", HttpMethod.Delete, new[] { "Authorization", "X-Trace" }, useCredentials: true),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }));
 
         var result = await new CorsVerifier(client, host.CreateHandler).VerifyAsync(contract);

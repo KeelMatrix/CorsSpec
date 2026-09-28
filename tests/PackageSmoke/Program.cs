@@ -18,8 +18,15 @@ builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy
     .WithHeaders("X-Trace")));
 var app = builder.Build();
 app.UseRouting();
+var observedAccept = string.Empty;
+var optionsRequests = 0;
 app.Use(async (context, next) =>
 {
+    if (context.Request.Method == HttpMethod.Options.Method)
+    {
+        optionsRequests++;
+    }
+
     if (context.Request.Method == HttpMethod.Options.Method &&
         (context.Request.Headers.Accept.Count != 1 || context.Request.Headers.Accept[0] != "*/*"))
     {
@@ -33,6 +40,11 @@ app.UseCors("smoke");
 var patchRequests = 0;
 app.Use(async (context, next) =>
 {
+    if (context.Request.Method == HttpMethod.Get.Method && context.Request.Path == "/orders")
+    {
+        observedAccept = context.Request.Headers.Accept.ToString();
+    }
+
     if (context.Request.Method == "PATCH")
     {
         patchRequests++;
@@ -44,17 +56,27 @@ app.MapMethods("/orders", allowedMethods, () => Results.Ok());
 await app.StartAsync();
 
 using var client = app.GetTestClient();
-var verifier = new CorsVerifier(client, app.GetTestServer().CreateHandler);
-var allowed = await verifier.VerifyAsync(new CorsContract(
-    new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get),
+client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html?");
+var precedenceVerifier = new CorsVerifier(client, app.GetTestServer().CreateHandler);
+var allowed = await precedenceVerifier.VerifyAsync(new CorsContract(
+    new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get,
+        requestHeaders: new[] { new CorsRequestHeader("Accept", "text/html") }),
     CorsExpectation.Allowed()));
+
+if (!allowed.IsSuccess || allowed.PreflightSent || allowed.ActualRequestSent == false ||
+    observedAccept != "text/html" || optionsRequests != 0)
+{
+    throw new InvalidOperationException($"Package smoke failed for effective request precedence. Allowed: {allowed.Summary} Accept: {observedAccept} OPTIONS: {optionsRequests}.");
+}
+
+using var cleanClient = app.GetTestClient();
+var verifier = new CorsVerifier(cleanClient, app.GetTestServer().CreateHandler);
 var denied = await verifier.VerifyAsync(new CorsContract(
     new CorsScenario("/orders", "https://denied.example", HttpMethod.Get),
     CorsExpectation.Denied()));
-
-if (!allowed.IsSuccess || !denied.IsSuccess)
+if (!denied.IsSuccess)
 {
-    throw new InvalidOperationException($"Package smoke failed. Allowed: {allowed.Summary} Denied: {denied.Summary}");
+    throw new InvalidOperationException($"Package smoke failed. Denied: {denied.Summary}");
 }
 
 var allowedPreflight = await verifier.VerifyAsync(new CorsContract(

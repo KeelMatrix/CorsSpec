@@ -49,7 +49,7 @@ internal sealed class TestCorsHost : IAsyncDisposable
             options.AddPolicy("credentials", policy => policy
                 .WithOrigins("https://credentialed.example")
                 .WithMethods("GET", "DELETE")
-                .WithHeaders("X-Trace")
+                .WithHeaders("X-Trace", "Authorization")
                 .AllowCredentials()
                 .WithExposedHeaders("X-Request-Id")
                 .SetPreflightMaxAge(TimeSpan.FromMinutes(10)));

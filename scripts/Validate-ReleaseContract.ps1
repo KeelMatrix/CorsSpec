@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $projectPath = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $propsPath = Join-Path $root 'Directory.Build.props'
 $changelogPath = if ([string]::IsNullOrWhiteSpace($ChangelogPath)) {
@@ -45,14 +45,35 @@ if ($declaredVersions.Count -ne 1 -or $declaredVersions[0] -ne $version) {
 
 $changelogLines = @(Get-Content -LiteralPath $changelogPath)
 $headings = [System.Collections.Generic.List[object]]::new()
-$inFence = $false
+$fenceCharacter = $null
+$fenceLength = 0
 for ($index = 0; $index -lt $changelogLines.Count; $index++) {
     $line = $changelogLines[$index]
-    if ($line.TrimStart().StartsWith('```', [StringComparison]::Ordinal)) {
-        $inFence = -not $inFence
+    $fence = [regex]::Match($line, '^(?<indent> {0,3})(?<marker>`{3,}|~{3,})(?<info>.*)$')
+    if ($null -eq $fenceCharacter) {
+        if ($fence.Success) {
+            $marker = $fence.Groups['marker'].Value
+            if ($marker[0] -eq '`' -and $fence.Groups['info'].Value.Contains('`', [StringComparison]::Ordinal)) {
+                throw "CHANGELOG.md contains an unsupported backtick in a fenced-code info string: '$line'."
+            }
+
+            $fenceCharacter = $marker[0]
+            $fenceLength = $marker.Length
+            continue
+        }
+    }
+    else {
+        $closingFence = [regex]::Match($line, '^(?<indent> {0,3})(?<marker>`{3,}|~{3,})(?<tail>[ \t]*)$')
+        if ($closingFence.Success -and
+            $closingFence.Groups['marker'].Value[0] -eq $fenceCharacter -and
+            $closingFence.Groups['marker'].Value.Length -ge $fenceLength) {
+            $fenceCharacter = $null
+            $fenceLength = 0
+        }
+
         continue
     }
-    if ($inFence) { continue }
+
     if ($line -match '^## \[(?<headingVersion>[^\]]+)\](?:\s+-\s+(?<date>\S+))?\s*$') {
         $headingVersion = $Matches.headingVersion
         $headingDate = $Matches.date
@@ -70,6 +91,10 @@ for ($index = 0; $index -lt $changelogLines.Count; $index++) {
         }
         $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $headingDate; Index = $index })
     }
+}
+
+if ($null -ne $fenceCharacter) {
+    throw 'CHANGELOG.md contains an unclosed fenced-code block.'
 }
 
 if (@($headings | Where-Object Version -eq 'Unreleased').Count -ne 1) {

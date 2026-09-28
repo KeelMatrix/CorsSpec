@@ -8,7 +8,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.Reflection.Metadata
 
 $failures = [System.Collections.Generic.List[string]]::new()
-$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $repositoryCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $repositoryCommit -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not resolve the repository commit for the compiler-produced symbol fixture.'
@@ -264,6 +264,7 @@ try {
     $changelogFixture = Join-Path $fixtureRoot 'changelog.md'
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md') -Destination $changelogFixture
     $leapChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2026-09-24', '2024-02-29')
+    $validReleaseChangelog = $leapChangelog.Replace('2024-02-29', '2026-09-24')
     Set-Content -LiteralPath $changelogFixture -Value $leapChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Release contract rejected a valid leap-day changelog date.' }
@@ -273,12 +274,37 @@ try {
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an invalid calendar date.' }
 
-    $fencedChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2023-02-29', '2026-09-24') + "`n" + '```text' + "`n## [0.1.0] - 2026-99-99`n" + '```' + "`n"
+    $fencedChangelog = $validReleaseChangelog + "`n" + '```text' + "`n## [0.1.0] - 2026-99-99`n" + '```' + "`n"
     Set-Content -LiteralPath $changelogFixture -Value $fencedChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Release contract treated a fenced changelog lookalike as a real heading.' }
 
-    $duplicateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture) + "`n## [0.1.0] - 2026-09-25`n`n### Added`n`n- Duplicate fixture section.`n"
+    $unreleasedOnlyChangelog = @"
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- Upcoming changes.
+"@
+    $fencedOnlyChangelog = $unreleasedOnlyChangelog + "`n~~~markdown`n## [0.1.0] - 2026-09-24`n### Added`n`n- Fenced lookalike.`n~~~`n"
+    Set-Content -LiteralPath $changelogFixture -Value $fencedOnlyChangelog -Encoding utf8
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted a tilde-fenced-only release entry.' }
+
+    $shortClosingFenceChangelog = $unreleasedOnlyChangelog + "`n~~~~~markdown`n## [0.1.0] - 2026-09-24`n### Added`n`n- Unclosed lookalike.`n~~~`n"
+    Set-Content -LiteralPath $changelogFixture -Value $shortClosingFenceChangelog -Encoding utf8
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted a shorter closing fence.' }
+
+    $newLine = [Environment]::NewLine
+    $indentedFenceChangelog = $unreleasedOnlyChangelog + $newLine + ('   ' + ('`' * 3) + 'markdown') + $newLine + '## [0.1.0] - 2026-09-24' + $newLine + '### Added' + $newLine + $newLine + '- Indented lookalike.' + $newLine + ('   ' + ('`' * 3)) + $newLine
+    Set-Content -LiteralPath $changelogFixture -Value $indentedFenceChangelog -Encoding utf8
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an indented fenced-only release entry.' }
+
+    $duplicateChangelog = $validReleaseChangelog + "`n## [0.1.0] - 2026-09-25`n`n### Added`n`n- Duplicate fixture section.`n"
     Set-Content -LiteralPath $changelogFixture -Value $duplicateChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted duplicate version sections.' }
@@ -549,6 +575,86 @@ finally {
     $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT = $savedFakeVulnerability
     $env:FAKE_DEPENDENCY_AUDIT_STDERR = $savedFakeStderr
     Remove-Item -LiteralPath $dependencyFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+$skipLiteralPathFixture = $env:CORSSPEC_SKIP_LITERAL_PATH_FIXTURE -eq '1'
+if (-not $skipLiteralPathFixture) {
+    $literalPathFixtureParent = Join-Path ([System.IO.Path]::GetTempPath()) ("corsspec-literal-path-" + [guid]::NewGuid().ToString('N'))
+    $literalPathFixture = Join-Path $literalPathFixtureParent 'CorsSpec [1] & Δ'
+    $literalPathNeighbor = Join-Path $literalPathFixtureParent 'CorsSpec 1 & Δ'
+    New-Item -ItemType Directory -Force -Path $literalPathFixture, $literalPathNeighbor | Out-Null
+    try {
+    $trackedPaths = @(git -C $repositoryRoot ls-files)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate tracked paths for the literal-path fixture.' }
+
+    foreach ($checkout in @($literalPathFixture, $literalPathNeighbor)) {
+        foreach ($relative in $trackedPaths) {
+            if ($relative -eq 'icon.png') { continue }
+            $source = Join-Path $repositoryRoot ($relative -replace '/', [IO.Path]::DirectorySeparatorChar)
+            $destination = Join-Path $checkout ($relative -replace '/', [IO.Path]::DirectorySeparatorChar)
+            $destinationParent = Split-Path -Parent $destination
+            New-Item -ItemType Directory -Force -Path $destinationParent | Out-Null
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+        }
+
+        & git -C $checkout init --quiet --initial-branch=main
+        if ($LASTEXITCODE -ne 0) { throw "Could not initialize literal-path checkout '$checkout'." }
+    }
+
+    Set-Content -LiteralPath (Join-Path $literalPathNeighbor 'neighbor-sentinel.md') -Value ('KEE-' + '9999') -Encoding utf8
+    $neighborProps = Join-Path $literalPathNeighbor 'Directory.Build.props'
+    (Get-Content -Raw -LiteralPath $neighborProps).Replace('<Version>0.1.0</Version>', '<Version>9.9.9</Version>') |
+        Set-Content -LiteralPath $neighborProps -Encoding utf8
+
+    & git -C $literalPathFixture add -- .
+    & git -C $literalPathFixture -c user.name=KeelMatrix -c user.email=keelmatrix@gmail.com commit --quiet -m 'fixture literal repository'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the literal-path target fixture.' }
+
+    & git -C $literalPathNeighbor add -- .
+    & git -C $literalPathNeighbor -c user.name='Wrong Fixture Author' -c user.email=fixture@example.test commit --quiet -m 'fixture literal neighbor'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not commit the literal-path neighbor fixture.' }
+
+    $literalPathCommit = (& git -C $literalPathFixture rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $literalPathCommit -notmatch '^[0-9a-f]{40}$') {
+        throw 'Could not resolve the literal-path target fixture commit.'
+    }
+
+    $targetTrackedText = Join-Path $literalPathFixture 'scripts' 'Test-TrackedText.ps1'
+    Invoke-NestedPwsh -NoProfile -File $targetTrackedText
+    if ($LASTEXITCODE -ne 0) { throw 'Tracked-text validation selected the wrong checkout for a literal-path fixture.' }
+
+    $targetHistory = Join-Path $literalPathFixture 'scripts' 'Test-CommitHistory.ps1'
+    Invoke-NestedPwsh -NoProfile -File $targetHistory
+    if ($LASTEXITCODE -ne 0) { throw 'Commit-history validation selected the wrong checkout for a literal-path fixture.' }
+
+    $savedGithubSha = $env:GITHUB_SHA
+    $env:GITHUB_SHA = $literalPathCommit
+    try {
+        $targetRelease = Join-Path $literalPathFixture 'scripts' 'Validate-ReleaseContract.ps1'
+        Invoke-NestedPwsh -NoProfile -File $targetRelease -Tag v0.1.0
+        if ($LASTEXITCODE -ne 0) { throw 'Release validation selected the wrong checkout for a literal-path fixture.' }
+
+        $targetValidate = Join-Path $literalPathFixture 'scripts' 'Validate.ps1'
+        $savedLiteralPathSkip = $env:CORSSPEC_SKIP_LITERAL_PATH_FIXTURE
+        $savedValidationStageSkip = $env:CORSSPEC_SKIP_VALIDATION_STAGE
+        $env:CORSSPEC_SKIP_LITERAL_PATH_FIXTURE = '1'
+        $env:CORSSPEC_SKIP_VALIDATION_STAGE = '1'
+        try {
+            Invoke-NestedPwsh -NoProfile -File $targetValidate -Mode Focused -SkipPackage
+            if ($LASTEXITCODE -ne 0) { throw 'The main validation entry point failed in a literal-path checkout.' }
+        }
+        finally {
+            $env:CORSSPEC_SKIP_LITERAL_PATH_FIXTURE = $savedLiteralPathSkip
+            $env:CORSSPEC_SKIP_VALIDATION_STAGE = $savedValidationStageSkip
+        }
+    }
+        finally {
+            $env:GITHUB_SHA = $savedGithubSha
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $literalPathFixtureParent -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Host 'Validation stage regression checks passed.'

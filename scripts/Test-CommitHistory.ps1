@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RepositoryPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    [string]$RepositoryPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 )
 
 $ErrorActionPreference = 'Stop'

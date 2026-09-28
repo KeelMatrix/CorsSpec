@@ -27,7 +27,9 @@ internal sealed class RecordingHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(CloneRequest(request));
-        return Task.FromResult(_responseFactory(request));
+        var response = _responseFactory(request);
+        response.RequestMessage ??= request;
+        return Task.FromResult(response);
     }
 
     protected override void Dispose(bool disposing)

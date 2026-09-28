@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory = $true)][string]$SymbolsPath,
     [Parameter(Mandatory = $true)][string]$ExpectedCommit,
     [switch]$RequireIcon,
-    [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    [string]$RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 )
 
 $ErrorActionPreference = 'Stop'

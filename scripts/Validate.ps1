@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $launchGuard = Join-Path $root 'build/Test-NestedPwshLaunch.ps1'
 & $launchGuard -SelfTest
 if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
@@ -46,8 +46,10 @@ Invoke-ValidationStage -Name 'Tracked-text hygiene' -Failures $failures -Command
 Invoke-ValidationStage -Name 'Commit history hygiene' -Failures $failures -Command {
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1')
 }
-Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
-    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
+if ($env:CORSSPEC_SKIP_VALIDATION_STAGE -ne '1') {
+    Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
+        Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
+    }
 }
 if ($Mode -eq 'Full') {
     Invoke-ValidationStage -Name 'Release contract' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" }

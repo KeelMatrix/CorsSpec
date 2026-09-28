@@ -2,7 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $textExtensions = @('.cs', '.csproj', '.md', '.ps1', '.props', '.targets', '.txt', '.yml', '.yaml', '.json', '.xml')
 $patterns = @(
     '\bKEE-[0-9]{4,}\b',

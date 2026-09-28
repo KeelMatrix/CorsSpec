@@ -272,7 +272,10 @@ public sealed class HeaderInterpretationTests
         Assert.Equal(expectedSuccess, result.ActualRequestSent);
         if (!expectedSuccess)
         {
-            Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.PreflightStatusRejected);
+            var expectedFailure = statusCode is 300 or 302 or 307
+                ? CorsFailureKind.RedirectNotSupported
+                : CorsFailureKind.PreflightStatusRejected;
+            Assert.Contains(result.Issues, issue => issue.Kind == expectedFailure);
         }
     }
 
@@ -568,7 +571,43 @@ public sealed class HeaderInterpretationTests
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, field == "headers" ? new[] { "X-Trace" } : null),
             CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
 
-        Assert.Equal(field == "headers", result.IsSuccess);
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
+    public async Task Empty_allow_methods_is_valid_metadata_when_a_preflighted_simple_method_needs_no_method_match()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: string.Empty, headers: "X-Trace")
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace" }),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.True(result.PreflightSent);
+        Assert.True(result.ActualRequestSent);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Empty_allow_headers_is_valid_metadata_when_no_requested_header_needs_matching()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: "DELETE", headers: string.Empty)
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.True(result.PreflightSent);
+        Assert.True(result.ActualRequestSent);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Fact]
