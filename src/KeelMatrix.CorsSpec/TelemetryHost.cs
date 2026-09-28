@@ -9,9 +9,19 @@ internal interface ICorsTelemetry
 
 internal sealed class SharedTelemetry : ICorsTelemetry
 {
-    private static readonly Client Client = new("CorsSpec", typeof(SharedTelemetry));
+    private readonly Client _client;
 
-    public void TrackActivation() => Client.TrackActivation();
+    public SharedTelemetry()
+        : this("CorsSpec")
+    {
+    }
+
+    internal SharedTelemetry(string toolName)
+    {
+        _client = new Client(toolName, typeof(SharedTelemetry));
+    }
+
+    public void TrackActivation() => _client.TrackActivation();
 }
 
 internal static class TelemetryHost

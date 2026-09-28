@@ -48,10 +48,8 @@ public sealed class CorsScenario
     /// <summary>Gets a value indicating whether the contract expects credentialed access.</summary>
     public bool UseCredentials { get; }
 
-    internal bool RequiresPreflight => !IsSimpleMethod(Method) || RequestHeaders.Any(HeaderRequiresPreflight) ||
-        RequestedHeaders.Any(name => !RequestHeaders.Any(header => header.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) && !IsNameSafelistedWithoutValue(name));
-
-    private static bool HeaderRequiresPreflight(CorsRequestHeader header) => !Validation.IsCorsSafelistedRequestHeader(header.Name, header.Value);
+    internal bool RequiresPreflight(IReadOnlyCollection<string> effectivePreflightHeaderNames) =>
+        !IsSimpleMethod(Method) || effectivePreflightHeaderNames.Count != 0;
 
     internal static bool IsNameSafelistedWithoutValue(string name) =>
         name.Equals("Accept", StringComparison.OrdinalIgnoreCase) ||

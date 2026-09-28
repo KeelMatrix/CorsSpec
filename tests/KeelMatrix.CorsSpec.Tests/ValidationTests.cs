@@ -276,7 +276,7 @@ public sealed class ValidationTests
     {
         var scenario = new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header });
 
-        Assert.True(scenario.RequiresPreflight);
+        Assert.True(scenario.RequiresPreflight(scenario.RequestedHeaders));
     }
 
     [Theory]
@@ -285,7 +285,7 @@ public sealed class ValidationTests
     {
         var scenario = new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header });
 
-        Assert.True(scenario.RequiresPreflight);
+        Assert.True(scenario.RequiresPreflight(scenario.RequestedHeaders));
     }
 
     [Theory]

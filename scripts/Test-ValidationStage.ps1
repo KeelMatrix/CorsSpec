@@ -345,4 +345,209 @@ finally {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$dependencyFixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("corsspec-dependency-audit-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $dependencyFixtureRoot | Out-Null
+$savedFakeGraph = $env:FAKE_DEPENDENCY_GRAPH_OUTPUT
+$savedFakeVulnerability = $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT
+$savedFakeStderr = $env:FAKE_DEPENDENCY_AUDIT_STDERR
+try {
+    $graphOutput = Join-Path $dependencyFixtureRoot 'graph.json'
+    $vulnerabilityOutput = Join-Path $dependencyFixtureRoot 'vulnerability.json'
+    $rawVulnerabilityOutput = Join-Path $dependencyFixtureRoot 'raw-vulnerability.txt'
+    $auditOutput = Join-Path $dependencyFixtureRoot 'audit.json'
+    $fakeDotnet = Join-Path $dependencyFixtureRoot 'dotnet.ps1'
+    @'
+param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Arguments
+)
+
+$reportPath = if ($Arguments -contains '--vulnerable') {
+    $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT
+}
+else {
+    $env:FAKE_DEPENDENCY_GRAPH_OUTPUT
+}
+
+Get-Content -Raw -LiteralPath $reportPath
+if (-not [string]::IsNullOrEmpty($env:FAKE_DEPENDENCY_AUDIT_STDERR)) {
+    [Console]::Error.WriteLine($env:FAKE_DEPENDENCY_AUDIT_STDERR)
+}
+'@ | Set-Content -LiteralPath $fakeDotnet -Encoding utf8
+
+    $cleanGraph = [ordered]@{
+        version = 1
+        parameters = '--include-transitive'
+        projects = @([ordered]@{
+            path = 'src/KeelMatrix.CorsSpec/KeelMatrix.CorsSpec.csproj'
+            frameworks = @([ordered]@{
+                framework = 'net8.0'
+                topLevelPackages = @(
+                    [ordered]@{ id = 'KeelMatrix.Telemetry'; requestedVersion = '0.1.1'; resolvedVersion = '0.1.1' },
+                    [ordered]@{ id = 'Microsoft.CodeAnalysis.PublicApiAnalyzers'; requestedVersion = '3.3.4'; resolvedVersion = '3.3.4' }
+                )
+                transitivePackages = @(
+                    [ordered]@{ id = 'System.IO.Hashing'; resolvedVersion = '10.0.12' }
+                )
+            })
+        })
+    }
+    $cleanVulnerability = [ordered]@{
+        version = 1
+        parameters = '--vulnerable --include-transitive'
+        sources = @('https://api.nuget.org/v3/index.json')
+        projects = @([ordered]@{ path = 'src/KeelMatrix.CorsSpec/KeelMatrix.CorsSpec.csproj' })
+    }
+    $findingsVulnerability = [ordered]@{
+        version = 1
+        parameters = '--vulnerable --include-transitive'
+        sources = @('https://api.nuget.org/v3/index.json')
+        projects = @([ordered]@{
+            path = 'src/KeelMatrix.CorsSpec/KeelMatrix.CorsSpec.csproj'
+            frameworks = @([ordered]@{
+                framework = 'net8.0'
+                topLevelPackages = @([ordered]@{
+                    id = 'KeelMatrix.Telemetry'
+                    requestedVersion = '0.1.1'
+                    resolvedVersion = '0.1.1'
+                    vulnerabilities = @([ordered]@{ severity = 'High'; advisoryurl = 'https://example.test/advisory/direct' })
+                })
+                transitivePackages = @([ordered]@{
+                    id = 'System.IO.Hashing'
+                    resolvedVersion = '10.0.12'
+                    vulnerabilities = @([ordered]@{ severity = 'Moderate'; advisoryurl = 'https://example.test/advisory/transitive' })
+                })
+            })
+        })
+    }
+
+    $cleanGraphJson = $cleanGraph | ConvertTo-Json -Depth 20
+    $cleanVulnerabilityJson = $cleanVulnerability | ConvertTo-Json -Depth 20
+    $findingsVulnerabilityJson = $findingsVulnerability | ConvertTo-Json -Depth 20
+    $cleanGraphJson | Set-Content -LiteralPath $graphOutput -Encoding utf8
+    $cleanVulnerabilityJson | Set-Content -LiteralPath $vulnerabilityOutput -Encoding utf8
+    $env:FAKE_DEPENDENCY_GRAPH_OUTPUT = $graphOutput
+    $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT = $vulnerabilityOutput
+    $env:FAKE_DEPENDENCY_AUDIT_STDERR = $null
+
+    function Invoke-DependencyFixture([string]$VulnerabilityJson = $null, [string]$RawVulnerability = $null, [string]$Stderr = $null, [string]$GraphJson = $null) {
+        if ([string]::IsNullOrEmpty($VulnerabilityJson)) { $VulnerabilityJson = $cleanVulnerabilityJson }
+        if ([string]::IsNullOrEmpty($GraphJson)) { $GraphJson = $cleanGraphJson }
+        $GraphJson | Set-Content -LiteralPath $graphOutput -Encoding utf8
+        $env:FAKE_DEPENDENCY_GRAPH_OUTPUT = $graphOutput
+        $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT = $vulnerabilityOutput
+        if ([string]::IsNullOrEmpty($RawVulnerability)) {
+            $VulnerabilityJson | Set-Content -LiteralPath $vulnerabilityOutput -Encoding utf8
+        }
+        else {
+            $RawVulnerability | Set-Content -LiteralPath $rawVulnerabilityOutput -Encoding utf8
+            $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT = $rawVulnerabilityOutput
+        }
+        $env:FAKE_DEPENDENCY_AUDIT_STDERR = $Stderr
+        Remove-Item -LiteralPath $auditOutput -Force -ErrorAction SilentlyContinue
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-DependencyAudit.ps1') -DotnetCommand $fakeDotnet -OutputPath $auditOutput 2>$null | Out-Null
+        return $LASTEXITCODE
+    }
+
+    $exitCode = Invoke-DependencyFixture
+    if ($exitCode -ne 0 -or -not (Test-Path -LiteralPath $auditOutput -PathType Leaf)) {
+        throw 'The actual clean no-findings vulnerability report shape was rejected.'
+    }
+    $audit = Get-Content -Raw -LiteralPath $auditOutput | ConvertFrom-Json
+    if ($audit.vulnerabilities.projects[0].PSObject.Properties['frameworks']) {
+        throw 'The positive clean vulnerability fixture did not preserve the SDK no-framework shape.'
+    }
+
+    $findingsExitCode = Invoke-DependencyFixture -VulnerabilityJson $findingsVulnerabilityJson
+    $findingsArtifact = Test-Path -LiteralPath $auditOutput
+    if ($findingsExitCode -eq 0 -or $findingsArtifact) {
+        throw 'A direct and transitive vulnerability findings report was accepted as clean.'
+    }
+
+    function Assert-DependencyFixtureFails([string]$Name, [scriptblock]$Mutate) {
+        $fixture = $cleanVulnerabilityJson | ConvertFrom-Json
+        & $Mutate $fixture
+        $json = $fixture | ConvertTo-Json -Depth 20
+        if ((Invoke-DependencyFixture -VulnerabilityJson $json) -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+            throw "Dependency audit accepted malformed fixture: $Name."
+        }
+    }
+
+    Assert-DependencyFixtureFails 'missing command metadata' { param($fixture) $fixture.PSObject.Properties.Remove('parameters') }
+    Assert-DependencyFixtureFails 'missing source metadata' { param($fixture) $fixture.PSObject.Properties.Remove('sources') }
+    Assert-DependencyFixtureFails 'missing schema version' { param($fixture) $fixture.PSObject.Properties.Remove('version') }
+    Assert-DependencyFixtureFails 'missing project path' { param($fixture) $fixture.projects[0].PSObject.Properties.Remove('path') }
+    Assert-DependencyFixtureFails 'wrong project' { param($fixture) $fixture.projects[0].path = 'src/Other/Other.csproj' }
+    Assert-DependencyFixtureFails 'extra project' { param($fixture) $fixture.projects += [pscustomobject]@{ path = 'src/Other/Other.csproj' } }
+    Assert-DependencyFixtureFails 'unknown schema property' { param($fixture) $fixture.PSObject.Properties.Add([psnoteproperty]::new('unexpected', 'value')) }
+    $partialGraph = $cleanGraphJson | ConvertFrom-Json
+    $partialGraph.projects[0].frameworks[0].PSObject.Properties.Remove('topLevelPackages')
+    if ((Invoke-DependencyFixture -GraphJson ($partialGraph | ConvertTo-Json -Depth 20)) -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+        throw 'A graph report with truncated framework coverage was accepted.'
+    }
+    $partialTransitiveGraph = $cleanGraphJson | ConvertFrom-Json
+    $partialTransitiveGraph.projects[0].frameworks[0].PSObject.Properties.Remove('transitivePackages')
+    if ((Invoke-DependencyFixture -GraphJson ($partialTransitiveGraph | ConvertTo-Json -Depth 20)) -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+        throw 'A graph report with truncated transitive coverage was accepted.'
+    }
+    Assert-DependencyFixtureFails 'empty vulnerability frameworks' {
+        param($fixture)
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @()))
+    }
+    Assert-DependencyFixtureFails 'wrong vulnerability framework' {
+        param($fixture)
+        $fixture.PSObject.Properties.Remove('frameworks')
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @([pscustomobject]@{ framework = 'net7.0'; topLevelPackages = @(); transitivePackages = @() })))
+    }
+    Assert-DependencyFixtureFails 'multiple vulnerability frameworks' {
+        param($fixture)
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @(
+            [pscustomobject]@{ framework = 'net8.0'; topLevelPackages = @(); transitivePackages = @() },
+            [pscustomobject]@{ framework = 'net7.0'; topLevelPackages = @(); transitivePackages = @() }
+        )))
+    }
+    Assert-DependencyFixtureFails 'missing package identity and version' {
+        param($fixture)
+        $fixture.PSObject.Properties.Remove('frameworks')
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @([pscustomobject]@{
+            framework = 'net8.0'
+            topLevelPackages = @([pscustomobject]@{ resolvedVersion = '0.1.1'; vulnerabilities = @([pscustomobject]@{ severity = 'High'; advisoryurl = 'https://example.test/advisory' }) })
+            transitivePackages = @()
+        })))
+    }
+    Assert-DependencyFixtureFails 'missing vulnerability array' {
+        param($fixture)
+        $fixture.PSObject.Properties.Remove('frameworks')
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @([pscustomobject]@{
+            framework = 'net8.0'
+            topLevelPackages = @([pscustomobject]@{ id = 'KeelMatrix.Telemetry'; resolvedVersion = '0.1.1' })
+            transitivePackages = @()
+        })))
+    }
+    Assert-DependencyFixtureFails 'unexpected finding shape' {
+        param($fixture)
+        $fixture.PSObject.Properties.Remove('frameworks')
+        $fixture.PSObject.Properties.Add([psnoteproperty]::new('frameworks', @([pscustomobject]@{
+            framework = 'net8.0'
+            topLevelPackages = @([pscustomobject]@{ id = 'KeelMatrix.Telemetry'; resolvedVersion = '0.1.1'; vulnerabilities = @('localized finding') })
+            transitivePackages = @()
+        })))
+    }
+    if ((Invoke-DependencyFixture -RawVulnerability "localized output`n") -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+        throw 'Localized or non-JSON vulnerability output was accepted.'
+    }
+    if ((Invoke-DependencyFixture -RawVulnerability ($cleanVulnerabilityJson + "`nwarning")) -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+        throw 'Warnings mixed into machine-readable output were accepted.'
+    }
+    if ((Invoke-DependencyFixture -Stderr 'warning from audit source') -eq 0 -or (Test-Path -LiteralPath $auditOutput)) {
+        throw 'Audit stderr was accepted as a clean result.'
+    }
+}
+finally {
+    $env:FAKE_DEPENDENCY_GRAPH_OUTPUT = $savedFakeGraph
+    $env:FAKE_DEPENDENCY_VULNERABILITY_OUTPUT = $savedFakeVulnerability
+    $env:FAKE_DEPENDENCY_AUDIT_STDERR = $savedFakeStderr
+    Remove-Item -LiteralPath $dependencyFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host 'Validation stage regression checks passed.'

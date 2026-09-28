@@ -54,13 +54,6 @@ public sealed class CorsVerifier
 
     private async Task<CorsVerificationResult> VerifyCoreAsync(CorsContract contract, CancellationToken cancellationToken)
     {
-
-        var localIssues = CorsHeaderEvaluator.ValidateContract(contract);
-        if (localIssues.Count != 0)
-        {
-            return new CorsVerificationResult(contract, false, false, null, false, null, localIssues);
-        }
-
         var scenario = contract.Scenario;
         var expectation = contract.Expectation;
         var issues = new List<CorsIssue>();
@@ -76,15 +69,18 @@ public sealed class CorsVerifier
             return CreateResult(contract, false, false, null, false, null, issues);
         }
 
+        var preflightHeaderNames = GetPreflightHeaderNames(scenario);
+        var requiresPreflight = scenario.RequiresPreflight(preflightHeaderNames);
+        var localIssues = CorsHeaderEvaluator.ValidateContract(contract, requiresPreflight);
+        if (localIssues.Count != 0)
+        {
+            return new CorsVerificationResult(contract, false, false, null, false, null, localIssues);
+        }
+
         var preflightSent = false;
         HttpStatusCode? preflightStatusCode = null;
         var actualRequestSent = false;
         HttpStatusCode? actualStatusCode = null;
-
-        var defaultHeaderRequiresPreflight = _client.DefaultRequestHeaders.Any(header =>
-            header.Value.Any(value => !Validation.IsCorsSafelistedRequestHeader(header.Key, value)));
-        var preflightHeaderNames = GetPreflightHeaderNames(scenario);
-        var requiresPreflight = !CorsScenario.IsSimpleMethod(scenario.Method) || preflightHeaderNames.Count != 0 || defaultHeaderRequiresPreflight;
 
         if (requiresPreflight)
         {
@@ -285,9 +281,9 @@ public sealed class CorsVerifier
                 .Where(header => header.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 .Select(static header => header.Value)
                 .ToArray();
-            if (values.Length == 0 && _client.DefaultRequestHeaders.TryGetValues(name, out var defaultValues))
+            if (_client.DefaultRequestHeaders.TryGetValues(name, out var defaultValues))
             {
-                values = defaultValues.ToArray();
+                values = values.Concat(defaultValues).ToArray();
             }
 
             if (values.Length == 0)
@@ -380,7 +376,7 @@ internal static class CorsHeaderEvaluator
         "Pragma"
     ];
 
-    public static IReadOnlyList<CorsIssue> ValidateContract(CorsContract contract)
+    public static IReadOnlyList<CorsIssue> ValidateContract(CorsContract contract, bool requiresPreflight)
     {
         var issues = new List<CorsIssue>();
         if (contract.Scenario.UseCredentials && contract.Expectation.AllowWildcardOrigin)
@@ -390,7 +386,7 @@ internal static class CorsHeaderEvaluator
                 "A credentialed scenario cannot require a wildcard allow-origin response."));
         }
 
-        if (!contract.Scenario.RequiresPreflight && contract.Expectation.ExpectedMaxAge is not null)
+        if (!requiresPreflight && contract.Expectation.ExpectedMaxAge is not null)
         {
             issues.Add(new CorsIssue(
                 CorsFailureKind.MalformedScenario,
