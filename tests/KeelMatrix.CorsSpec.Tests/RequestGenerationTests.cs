@@ -384,4 +384,97 @@ public sealed class RequestGenerationTests
         var expectedSerializedValue = value == "en-US, en;q=0.9" ? "en-US, en; q=0.9" : value;
         Assert.Equal(expectedSerializedValue, serializedValue);
     }
+
+    public static IEnumerable<object[]> RangeClassificationCases()
+    {
+        yield return new object[] { "bytes=0-0", true };
+        yield return new object[] { "bytes=0-", true };
+        yield return new object[] { "bytes=0000-0000", true };
+        yield return new object[] { "bytes=0001-0002", true };
+        yield return new object[] { $"bytes={new string('9', 60)}-{new string('9', 61)}", true };
+        yield return new object[] { "bytes=-500", false };
+        yield return new object[] { "bytes=10-1", false };
+        yield return new object[] { "bytes=٠-١", false };
+        yield return new object[] { "bytes=０-１", false };
+        yield return new object[] { "bytes=0 -1", false };
+        yield return new object[] { "bytes=0- 1", false };
+        yield return new object[] { "bytes=0-1 ", false };
+        yield return new object[] { "bytes=0--1", false };
+        yield return new object[] { "bytes=0-1-2", false };
+        yield return new object[] { "Bytes=0-1", false };
+        yield return new object[] { "bytes=0", false };
+        yield return new object[] { "bytes=0-\u00a0", false };
+        yield return new object[] { "bytes=0-\t", false };
+    }
+
+    [Theory]
+    [MemberData(nameof(RangeClassificationCases))]
+    public async Task Range_safelisting_requires_a_valid_single_ascii_nonreversed_range(string value, bool safe)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: null, headers: "Range")
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario(
+                "/orders",
+                "https://app.example",
+                HttpMethod.Get,
+                new[] { "Range" },
+                requestHeaders: new[] { new CorsRequestHeader("Range", value) }),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(!safe, result.PreflightSent);
+        Assert.Equal(safe ? 1 : 2, handler.Requests.Count);
+        Assert.Equal(safe ? HttpMethod.Get : HttpMethod.Options, handler.Requests[0].Method);
+        Assert.True(result.ActualRequestSent);
+    }
+
+    public static IEnumerable<object[]> ContentTypeClassificationCases()
+    {
+        yield return new object[] { "text/plain", true };
+        yield return new object[] { " text/plain ", true };
+        yield return new object[] { "\ttext/plain\t", true };
+        yield return new object[] { "text/plain ; charset=utf-8", true };
+        yield return new object[] { "text/plain\t;\tcharset=utf-8", true };
+        yield return new object[] { "TEXT/PLAIN", true };
+        yield return new object[] { "text/plain; charset=é", true };
+        yield return new object[] { "\u00a0text/plain", false };
+        yield return new object[] { "text/plain\u00a0", false };
+        yield return new object[] { "text/\u00a0plain", false };
+        yield return new object[] { "text/\u0085plain", false };
+        yield return new object[] { "text/plain\u2003", false };
+        yield return new object[] { "text/é", false };
+        yield return new object[] { "étext/plain", false };
+        yield return new object[] { "text/plain?", false };
+        yield return new object[] { "text/plain\"", false };
+        yield return new object[] { "text//plain", false };
+        yield return new object[] { "text/plain/extra", false };
+        yield return new object[] { "text/plain, text/html", false };
+    }
+
+    [Theory]
+    [MemberData(nameof(ContentTypeClassificationCases))]
+    public async Task Content_type_safelisting_uses_http_whitespace_and_mime_token_rules(string value, bool safe)
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: null, headers: "Content-Type")
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario(
+                "/orders",
+                "https://app.example",
+                HttpMethod.Get,
+                new[] { "Content-Type" },
+                requestHeaders: new[] { new CorsRequestHeader("Content-Type", value) }),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(!safe, result.PreflightSent);
+        Assert.Equal(safe ? 1 : 2, handler.Requests.Count);
+        Assert.Equal(safe ? HttpMethod.Get : HttpMethod.Options, handler.Requests[0].Method);
+        Assert.True(result.ActualRequestSent);
+    }
 }

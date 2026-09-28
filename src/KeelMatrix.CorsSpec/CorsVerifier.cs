@@ -275,6 +275,8 @@ public sealed class CorsVerifier
     private System.Collections.ObjectModel.ReadOnlyCollection<string> GetPreflightHeaderNames(CorsScenario scenario)
     {
         var names = new List<string>();
+        var potentiallyUnsafeNames = new List<string>();
+        long safelistValueSize = 0;
         foreach (var name in scenario.RequestedHeaders)
         {
             var values = scenario.RequestHeaders
@@ -297,6 +299,16 @@ public sealed class CorsVerifier
             {
                 names.Add(name);
             }
+            else
+            {
+                potentiallyUnsafeNames.Add(name);
+                safelistValueSize += values.Sum(static value => (long)value.Length);
+            }
+        }
+
+        if (safelistValueSize > 1024)
+        {
+            names.AddRange(potentiallyUnsafeNames);
         }
 
         return names.AsReadOnly();

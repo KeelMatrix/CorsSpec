@@ -11,7 +11,7 @@ public sealed class CorsScenario
     /// <param name="method">The actual request method. Browser-standard names are normalized to uppercase; custom method casing is preserved for exact allow-method matching.</param>
     /// <param name="requestedHeaders">Header names that a browser would request permission to send when their values are supplied by the caller outside this scenario. Unknown values conservatively force a preflight; simple safelisted names remain simple when their values are not modeled.</param>
     /// <param name="useCredentials">Whether the browser contract expects credentialed CORS permission.</param>
-    /// <param name="requestHeaders">Header names and values to serialize on the actual request. Values let the verifier classify value-sensitive safelisted headers.</param>
+    /// <param name="requestHeaders">Header names and values to serialize on the actual request. Values let the verifier classify value-sensitive safelisted headers, including the per-value and aggregate limits and the `Range` and `Content-Type` grammar rules used for preflight selection.</param>
     public CorsScenario(
         string path,
         string origin,

@@ -96,10 +96,10 @@ internal static class Validation
     public static string RequireHeaderName(string name, string parameterName)
         => RequireHeaderName(name, parameterName, rejectBrowserManaged: true);
 
-    public static string RequireHeaderValue(string value, string parameterName)
+    public static string RequireHeaderValue(string value, string parameterName, bool allowHorizontalTab = false)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (value.Any(static character => character <= '\u001f' || character == '\u007f'))
+        if (value.Any(character => (character <= '\u001f' && (!allowHorizontalTab || character != '\u0009')) || character == '\u007f'))
         {
             throw new ArgumentException($"'{parameterName}' contains a value with an invalid control character.", parameterName);
         }
@@ -188,7 +188,7 @@ internal static class Validation
 
     public static bool IsCorsSafelistedRequestHeader(string name, string value)
     {
-        if (value.Length > 128 || value.Any(static character => character is '\u0000' or '\u0009' or (>= '\u000a' and <= '\u000d') or '\u001f' or '\u007f'))
+        if (value.Length > 128 || ContainsCorsUnsafeRequestHeaderByte(value, name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
@@ -205,15 +205,12 @@ internal static class Validation
 
         if (name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
         {
-            var mediaType = value.Split(';', 2)[0].Trim();
-            return mediaType.Equals("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) ||
-                mediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase) ||
-                mediaType.Equals("text/plain", StringComparison.OrdinalIgnoreCase);
+            return IsCorsSafelistedContentType(value);
         }
 
         if (name.Equals("Range", StringComparison.OrdinalIgnoreCase))
         {
-            return System.Text.RegularExpressions.Regex.IsMatch(value, "^bytes=\\d+-\\d*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            return IsCorsSafelistedRange(value);
         }
 
         return false;
@@ -221,6 +218,129 @@ internal static class Validation
 
     private static bool IsLanguageCharacter(char character) =>
         character is >= '0' and <= '9' or >= 'A' and <= 'Z' or >= 'a' and <= 'z' or ' ' or '*' or ',' or '-' or '.' or ';' or '=';
+
+    private static bool ContainsCorsUnsafeRequestHeaderByte(string value, bool allowHorizontalTab) =>
+        value.Any(character =>
+            (character < '\u0020' && (character != '\u0009' || !allowHorizontalTab)) ||
+            character is '\u0022' or '\u0028' or '\u0029' or '\u003a' or '\u003c' or '\u003e' or '\u003f' or '\u0040' or '\u005b' or '\u005c' or '\u005d' or '\u007b' or '\u007d' or '\u007f');
+
+    private static bool IsCorsSafelistedContentType(string value)
+    {
+        var start = 0;
+        var end = value.Length;
+        while (start < end && IsHttpWhitespace(value[start]))
+        {
+            start++;
+        }
+
+        while (end > start && IsHttpWhitespace(value[end - 1]))
+        {
+            end--;
+        }
+
+        var mediaType = value[start..end];
+        var slash = mediaType.IndexOf('/');
+        if (slash <= 0)
+        {
+            return false;
+        }
+
+        var type = mediaType[..slash];
+        if (!IsToken(type))
+        {
+            return false;
+        }
+
+        var subtype = mediaType[(slash + 1)..];
+        var parameterStart = subtype.IndexOf(';');
+        if (parameterStart >= 0)
+        {
+            subtype = subtype[..parameterStart];
+        }
+
+        while (subtype.EndsWith(' ') || subtype.EndsWith('\t'))
+        {
+            subtype = subtype[..^1];
+        }
+
+        if (!IsToken(subtype))
+        {
+            return false;
+        }
+
+        var essence = string.Concat(type, "/", subtype);
+        return essence.Equals("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) ||
+            essence.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase) ||
+            essence.Equals("text/plain", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCorsSafelistedRange(string value)
+    {
+        const string prefix = "bytes=";
+        if (!value.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var range = value[prefix.Length..];
+        var dash = range.IndexOf('-');
+        if (dash <= 0)
+        {
+            return false;
+        }
+
+        var start = range[..dash];
+        var end = range[(dash + 1)..];
+        if (!IsAsciiDigits(start) || (end.Length != 0 && !IsAsciiDigits(end)))
+        {
+            return false;
+        }
+
+        if (end.Contains('-'))
+        {
+            return false;
+        }
+
+        return end.Length == 0 || CompareDecimalStrings(start, end) <= 0;
+    }
+
+    private static bool IsAsciiDigits(ReadOnlySpan<char> value)
+    {
+        if (value.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (character is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int CompareDecimalStrings(ReadOnlySpan<char> left, ReadOnlySpan<char> right)
+    {
+        left = TrimLeadingZeros(left);
+        right = TrimLeadingZeros(right);
+        return left.Length != right.Length ? left.Length.CompareTo(right.Length) : left.SequenceCompareTo(right);
+    }
+
+    private static ReadOnlySpan<char> TrimLeadingZeros(ReadOnlySpan<char> value)
+    {
+        var index = 0;
+        while (index < value.Length - 1 && value[index] == '0')
+        {
+            index++;
+        }
+
+        return value[index..];
+    }
+
+    private static bool IsHttpWhitespace(char character) => character is ' ' or '\t';
 
     public static IReadOnlyList<string> NormalizeExpectedExposedHeaders(IEnumerable<string>? names, string parameterName)
     {
