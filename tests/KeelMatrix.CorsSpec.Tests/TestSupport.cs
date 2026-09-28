@@ -44,6 +44,15 @@ internal sealed class RecordingHandler : HttpMessageHandler
             clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
+        if (source.Content is not null)
+        {
+            clone.Content = new ByteArrayContent(Array.Empty<byte>());
+            foreach (var header in source.Content.Headers)
+            {
+                clone.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+        }
+
         return clone;
     }
 }

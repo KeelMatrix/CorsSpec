@@ -115,13 +115,12 @@ public sealed class RequestGenerationTests
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-Trace", "caller-default");
         client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer synthetic");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", "session=synthetic");
 
         var scenario = new CorsScenario(
             "/orders",
             "https://app.example",
             HttpMethod.Delete,
-            new[] { "Authorization", "X-Trace" },
+            new[] { "Accept", "Authorization", "X-Trace" },
             useCredentials: true);
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
@@ -132,13 +131,11 @@ public sealed class RequestGenerationTests
             new[] { "Accept", "Access-Control-Request-Headers", "Access-Control-Request-Method", "Origin" },
             preflight.Headers.Select(header => header.Key).OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
         Assert.DoesNotContain("Authorization", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Cookie", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("X-Trace", preflight.Headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
 
         var actual = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Delete);
         Assert.Equal("Bearer synthetic", actual.Headers.GetValues("Authorization").Single());
         Assert.Equal("caller-default", actual.Headers.GetValues("X-Trace").Single());
-        Assert.Equal("session=synthetic", actual.Headers.GetValues("Cookie").Single());
     }
 
     [Fact]
@@ -293,7 +290,7 @@ public sealed class RequestGenerationTests
     }
 
     [Fact]
-    public async Task Default_headers_fail_closed_without_a_dedicated_preflight_handler()
+    public async Task Undeclared_default_headers_fail_closed_before_any_request()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
@@ -303,9 +300,10 @@ public sealed class RequestGenerationTests
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
             CorsExpectation.Allowed());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new CorsVerifier(client).VerifyAsync(contract));
+        var result = await new CorsVerifier(client).VerifyAsync(contract);
 
-        Assert.Contains("dedicated preflight handler factory", exception.Message, StringComparison.Ordinal);
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MalformedScenario);
         Assert.Empty(handler.Requests);
     }
 
@@ -343,7 +341,7 @@ public sealed class RequestGenerationTests
 
     [Theory]
     [InlineData("Accept", "text/html")]
-    [InlineData("Accept", "text/html\u001f")]
+    [InlineData("Accept", "text/html?")]
     [InlineData("Accept-Language", "en-US, en;q=0.9")]
     [InlineData("Accept-Language", "en_US")]
     [InlineData("Content-Language", "en-US")]
@@ -351,21 +349,39 @@ public sealed class RequestGenerationTests
     [InlineData("Content-Type", "text/plain")]
     [InlineData("Content-Type", "application/json")]
     [InlineData("Range", "bytes=0-99")]
-    public async Task Value_sensitive_caller_headers_always_use_a_conservative_preflight(string header, string value)
+    public async Task Caller_header_values_determine_safelisted_request_classification(string header, string value)
     {
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "GET", headers: header)
             : ResponseFactory.Cors(vary: null));
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
-        client.DefaultRequestHeaders.TryAddWithoutValidation(header, value);
-
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }),
+            new CorsScenario(
+                "/orders",
+                "https://app.example",
+                HttpMethod.Get,
+                new[] { header },
+                requestHeaders: new[] { new CorsRequestHeader(header, value) }),
             CorsExpectation.Allowed()));
 
+        var safe = header switch
+        {
+            "Accept" => value == "text/html",
+            "Accept-Language" => value == "en-US, en;q=0.9",
+            "Content-Language" => value == "en-US",
+            "Content-Type" => value == "text/plain",
+            "Range" => value == "bytes=0-99",
+            _ => false
+        };
         Assert.True(result.IsSuccess, result.Summary);
-        Assert.True(result.PreflightSent);
-        Assert.Equal(HttpMethod.Options, handler.Requests[0].Method);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(!safe, result.PreflightSent);
+        Assert.Equal(safe ? 1 : 2, handler.Requests.Count);
+        var actual = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Get);
+        var serializedValue = header.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
+            header.Equals("Content-Language", StringComparison.OrdinalIgnoreCase)
+            ? string.Join(", ", actual.Content?.Headers.GetValues(header) ?? Array.Empty<string>())
+            : string.Join(", ", actual.Headers.GetValues(header));
+        var expectedSerializedValue = value == "en-US, en;q=0.9" ? "en-US, en; q=0.9" : value;
+        Assert.Equal(expectedSerializedValue, serializedValue);
     }
 }

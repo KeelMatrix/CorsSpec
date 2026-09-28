@@ -19,6 +19,7 @@ KeelMatrix.CorsSpec.CorsFailureKind.MissingOrMismatchedAllowOrigin = 1 -> KeelMa
 KeelMatrix.CorsSpec.CorsFailureKind.MissingVaryOrigin = 5 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.NetworkFailure = 9 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.PreflightStatusRejected = 10 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.RedirectNotSupported = 11 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.RequestedHeaderRejected = 3 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsFailureKind.UnexpectedCorsPermission = 8 -> KeelMatrix.CorsSpec.CorsFailureKind
 KeelMatrix.CorsSpec.CorsIssue
@@ -28,12 +29,17 @@ KeelMatrix.CorsSpec.CorsMatrix
 KeelMatrix.CorsSpec.CorsMatrix.Contracts.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsContract!>!
 KeelMatrix.CorsSpec.CorsMatrix.CorsMatrix(System.Collections.Generic.IEnumerable<KeelMatrix.CorsSpec.CorsContract!>! contracts) -> void
 KeelMatrix.CorsSpec.CorsScenario
-KeelMatrix.CorsSpec.CorsScenario.CorsScenario(string! path, string! origin, System.Net.Http.HttpMethod! method, System.Collections.Generic.IEnumerable<string!>? requestedHeaders = null, bool useCredentials = false) -> void
+KeelMatrix.CorsSpec.CorsScenario.CorsScenario(string! path, string! origin, System.Net.Http.HttpMethod! method, System.Collections.Generic.IEnumerable<string!>? requestedHeaders = null, bool useCredentials = false, System.Collections.Generic.IEnumerable<KeelMatrix.CorsSpec.CorsRequestHeader!>? requestHeaders = null) -> void
 KeelMatrix.CorsSpec.CorsScenario.Method.get -> System.Net.Http.HttpMethod!
 KeelMatrix.CorsSpec.CorsScenario.Origin.get -> string!
 KeelMatrix.CorsSpec.CorsScenario.Path.get -> string!
+KeelMatrix.CorsSpec.CorsScenario.RequestHeaders.get -> System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsRequestHeader!>!
 KeelMatrix.CorsSpec.CorsScenario.RequestedHeaders.get -> System.Collections.Generic.IReadOnlyList<string!>!
 KeelMatrix.CorsSpec.CorsScenario.UseCredentials.get -> bool
+KeelMatrix.CorsSpec.CorsRequestHeader
+KeelMatrix.CorsSpec.CorsRequestHeader.CorsRequestHeader(string! name, string! value) -> void
+KeelMatrix.CorsSpec.CorsRequestHeader.Name.get -> string!
+KeelMatrix.CorsSpec.CorsRequestHeader.Value.get -> string!
 KeelMatrix.CorsSpec.CorsVerificationResult
 KeelMatrix.CorsSpec.CorsVerificationResult.ActualRequestSent.get -> bool
 KeelMatrix.CorsSpec.CorsVerificationResult.ActualStatusCode.get -> System.Net.HttpStatusCode?

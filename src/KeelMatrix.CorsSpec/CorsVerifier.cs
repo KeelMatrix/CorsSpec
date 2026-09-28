@@ -64,21 +64,38 @@ public sealed class CorsVerifier
         var scenario = contract.Scenario;
         var expectation = contract.Expectation;
         var issues = new List<CorsIssue>();
+        var undeclaredDefaults = _client.DefaultRequestHeaders
+            .Select(static header => header.Key)
+            .Where(name => !scenario.RequestedHeaders.Contains(name, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        if (undeclaredDefaults.Length != 0)
+        {
+            issues.Add(new CorsIssue(
+                CorsFailureKind.MalformedScenario,
+                $"The caller's HttpClient has default request headers that are not declared by the scenario: {string.Join(", ", undeclaredDefaults)}."));
+            return CreateResult(contract, false, false, null, false, null, issues);
+        }
+
         var preflightSent = false;
         HttpStatusCode? preflightStatusCode = null;
         var actualRequestSent = false;
         HttpStatusCode? actualStatusCode = null;
 
-        if (scenario.RequiresPreflight)
+        var defaultHeaderRequiresPreflight = _client.DefaultRequestHeaders.Any(header =>
+            header.Value.Any(value => !Validation.IsCorsSafelistedRequestHeader(header.Key, value)));
+        var preflightHeaderNames = GetPreflightHeaderNames(scenario);
+        var requiresPreflight = !CorsScenario.IsSimpleMethod(scenario.Method) || preflightHeaderNames.Count != 0 || defaultHeaderRequiresPreflight;
+
+        if (requiresPreflight)
         {
             preflightSent = true;
             HttpResponseMessage? response = null;
             try
             {
-                using var preflight = CreatePreflightRequest(scenario);
+                using var preflight = CreatePreflightRequest(scenario, preflightHeaderNames);
                 response = await SendPreflightAsync(preflight, cancellationToken).ConfigureAwait(false);
                 preflightStatusCode = response.StatusCode;
-                var preflightEvaluation = CorsHeaderEvaluator.EvaluatePreflight(response, scenario, expectation);
+                var preflightEvaluation = CorsHeaderEvaluator.EvaluatePreflight(response, scenario, expectation, preflightHeaderNames);
                 issues.AddRange(preflightEvaluation.Issues);
 
                 if (!expectation.IsAllowed)
@@ -88,10 +105,8 @@ public sealed class CorsVerifier
                         return CreateResult(contract, true, preflightSent, preflightStatusCode, false, null, issues);
                     }
 
-                    issues.Add(new CorsIssue(
-                        CorsFailureKind.UnexpectedCorsPermission,
-                        $"The preflight response granted {scenario.Method.Method} from the requested origin, but the contract expected access to be denied."));
-                    return CreateResult(contract, false, preflightSent, preflightStatusCode, false, null, issues);
+                    // A granted preflight is permission to attempt the browser operation, not its final CORS
+                    // verdict. Continue so a denied contract can assert the actual response as well.
                 }
 
                 if (!preflightEvaluation.GrantsCorsAccess)
@@ -109,6 +124,11 @@ public sealed class CorsVerifier
                 issues.Add(new CorsIssue(CorsFailureKind.NetworkFailure, "The caller-supplied HttpClient could not complete the CORS preflight."));
                 return CreateResult(contract, false, preflightSent, preflightStatusCode, false, null, issues);
             }
+            catch (RedirectNotSupportedException exception)
+            {
+                issues.Add(new CorsIssue(CorsFailureKind.RedirectNotSupported, exception.Message));
+                return CreateResult(contract, false, preflightSent, preflightStatusCode, false, null, issues);
+            }
             finally
             {
                 response?.Dispose();
@@ -121,6 +141,7 @@ public sealed class CorsVerifier
         {
             actualRequestSent = true;
             actualResponse = await _client.SendAsync(actual, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            EnsureNoRedirect(actual, actualResponse);
             actualStatusCode = actualResponse.StatusCode;
             var actualEvaluation = CorsHeaderEvaluator.EvaluateActual(actualResponse, scenario, expectation);
             issues.AddRange(actualEvaluation.Issues);
@@ -146,6 +167,10 @@ public sealed class CorsVerifier
         catch (HttpRequestException)
         {
             issues.Add(new CorsIssue(CorsFailureKind.NetworkFailure, "The caller-supplied HttpClient could not complete the actual CORS request."));
+        }
+        catch (RedirectNotSupportedException exception)
+        {
+            issues.Add(new CorsIssue(CorsFailureKind.RedirectNotSupported, exception.Message));
         }
         finally
         {
@@ -179,7 +204,9 @@ public sealed class CorsVerifier
             Timeout = _client.Timeout
         };
         preflight.RequestUri = ResolvePreflightUri(preflight.RequestUri);
-        return await preflightClient.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        var response = await preflightClient.SendAsync(preflight, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        EnsureNoRedirect(preflight, response);
+        return response;
     }
 
     private Uri ResolvePreflightUri(Uri? relativeUri)
@@ -191,6 +218,29 @@ public sealed class CorsVerifier
 
         return new Uri(_client.BaseAddress, relativeUri);
     }
+
+    private void EnsureNoRedirect(HttpRequestMessage request, HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode is >= 300 and < 400)
+        {
+            throw new RedirectNotSupportedException("The CORS verifier does not follow redirects; the supplied transport returned a redirect response.");
+        }
+
+        var expectedUri = request.RequestUri;
+        if (expectedUri is { IsAbsoluteUri: false } && _client.BaseAddress is not null)
+        {
+            expectedUri = new Uri(_client.BaseAddress, expectedUri);
+        }
+
+        var observedUri = response.RequestMessage?.RequestUri;
+        if (expectedUri is not null && observedUri is not null && !UriEquals(expectedUri, observedUri))
+        {
+            throw new RedirectNotSupportedException("The supplied HttpClient followed a redirect, so the response cannot be attributed to the requested CORS operation.");
+        }
+    }
+
+    private static bool UriEquals(Uri left, Uri right) =>
+        Uri.Compare(left, right, UriComponents.HttpRequestUrl, UriFormat.UriEscaped, StringComparison.Ordinal) == 0;
 
     /// <summary>Executes the contracts in a bounded matrix in declaration order.</summary>
     public async Task<IReadOnlyList<CorsVerificationResult>> VerifyMatrixAsync(CorsMatrix matrix, CancellationToken cancellationToken = default)
@@ -226,17 +276,47 @@ public sealed class CorsVerifier
         }
     }
 
-    internal static HttpRequestMessage CreatePreflightRequest(CorsScenario scenario)
+    private System.Collections.ObjectModel.ReadOnlyCollection<string> GetPreflightHeaderNames(CorsScenario scenario)
+    {
+        var names = new List<string>();
+        foreach (var name in scenario.RequestedHeaders)
+        {
+            var values = scenario.RequestHeaders
+                .Where(header => header.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                .Select(static header => header.Value)
+                .ToArray();
+            if (values.Length == 0 && _client.DefaultRequestHeaders.TryGetValues(name, out var defaultValues))
+            {
+                values = defaultValues.ToArray();
+            }
+
+            if (values.Length == 0)
+            {
+                if (!CorsScenario.IsNameSafelistedWithoutValue(name))
+                {
+                    names.Add(name);
+                }
+            }
+            else if (values.Any(value => !Validation.IsCorsSafelistedRequestHeader(name, value)))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.AsReadOnly();
+    }
+
+    internal static HttpRequestMessage CreatePreflightRequest(CorsScenario scenario, IReadOnlyList<string> preflightHeaderNames)
     {
         var request = new HttpRequestMessage(HttpMethod.Options, scenario.Path);
         AddOrigin(request, scenario.Origin);
         request.Headers.TryAddWithoutValidation("Accept", "*/*");
         request.Headers.TryAddWithoutValidation("Access-Control-Request-Method", scenario.Method.Method);
-        if (scenario.RequestedHeaders.Count != 0)
+        if (preflightHeaderNames.Count != 0)
         {
             request.Headers.TryAddWithoutValidation(
                 "Access-Control-Request-Headers",
-                string.Join(", ", scenario.RequestedHeaders.Select(static header => header.ToLowerInvariant())));
+                string.Join(", ", preflightHeaderNames.Select(static header => header.ToLowerInvariant())));
         }
 
         return request;
@@ -246,6 +326,20 @@ public sealed class CorsVerifier
     {
         var request = new HttpRequestMessage(scenario.Method, scenario.Path);
         AddOrigin(request, scenario.Origin);
+        foreach (var header in scenario.RequestHeaders)
+        {
+            if (header.Name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
+                header.Name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase))
+            {
+                request.Content ??= new ByteArrayContent(Array.Empty<byte>());
+                request.Content.Headers.TryAddWithoutValidation(header.Name, header.Value);
+            }
+            else
+            {
+                request.Headers.TryAddWithoutValidation(header.Name, header.Value);
+            }
+        }
+
         return request;
     }
 
@@ -313,12 +407,22 @@ internal static class CorsHeaderEvaluator
         return issues;
     }
 
-    public static CorsEvaluation EvaluatePreflight(HttpResponseMessage response, CorsScenario scenario, CorsExpectation expectation)
+    public static CorsEvaluation EvaluatePreflight(
+        HttpResponseMessage response,
+        CorsScenario scenario,
+        CorsExpectation expectation,
+        IReadOnlyList<string> preflightHeaderNames)
     {
         var issues = new List<CorsIssue>();
         var originPermission = EvaluateOrigin(response, scenario, expectation, issues);
         var methodPermission = HasMethodPermission(response, scenario);
-        var headersPermission = scenario.RequestedHeaders.All(header => HasToken(response, AllowHeaders, header, !scenario.UseCredentials));
+        var rawHeaders = GetValues(response, AllowHeaders);
+        var headersMetadataValid = rawHeaders.Count == 0 || TryParseCorsList(rawHeaders, AllowHeaders, out _);
+        var headersPermission = headersMetadataValid && preflightHeaderNames.All(header => HasToken(response, AllowHeaders, header, !scenario.UseCredentials));
+        if (!headersMetadataValid)
+        {
+            issues.Add(new CorsIssue(CorsFailureKind.RequestedHeaderRejected, "The response contained malformed Access-Control-Allow-Headers metadata."));
+        }
         var statusPermission = response.IsSuccessStatusCode;
 
         if (expectation.IsAllowed && !statusPermission)
@@ -459,7 +563,7 @@ internal static class CorsHeaderEvaluator
 
         var values = GetValues(response, AllowCredentials);
         return values.Count == 1 &&
-               values[0].Equals("true", StringComparison.Ordinal) &&
+               TrimHttpOws(values[0]).Equals("true", StringComparison.Ordinal) &&
                !IsWildcardOrigin(response);
     }
 
@@ -490,7 +594,7 @@ internal static class CorsHeaderEvaluator
             return CorsScenario.IsSimpleMethod(scenario.Method);
         }
 
-        if (!TryParseCorsList(rawValues, out var values))
+        if (!TryParseCorsList(rawValues, AllowMethods, out var values))
         {
             return false;
         }
@@ -500,27 +604,20 @@ internal static class CorsHeaderEvaluator
             return true;
         }
 
-        var comparison = IsBrowserStandardMethod(scenario.Method)
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-        return values.Any(value => value.Equals(scenario.Method.Method, comparison)) ||
+        return values.Any(value => value.Equals(scenario.Method.Method, StringComparison.Ordinal)) ||
             (!scenario.UseCredentials && values.Contains("*", StringComparer.Ordinal));
     }
-
-    private static bool IsBrowserStandardMethod(HttpMethod method) =>
-        method.Method is "DELETE" or "GET" or "HEAD" or "OPTIONS" or "POST" or "PUT";
 
     private static bool IsCorsSafelistedResponseHeader(string expected) =>
         CorsSafelistedResponseHeaders.Any(header => header.Equals(expected, StringComparison.OrdinalIgnoreCase));
 
     private static bool TryParseCorsList(HttpResponseMessage response, string headerName, out IReadOnlyList<string> tokens)
     {
-        return TryParseCorsList(GetValues(response, headerName), out tokens);
+        return TryParseCorsList(GetValues(response, headerName), headerName, out tokens);
     }
 
-    private static bool TryParseCorsList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens)
-        => TryParseHttpTokenList(values, out tokens);
+    private static bool TryParseCorsList(IReadOnlyList<string> values, string headerName, out IReadOnlyList<string> tokens)
+        => TryParseHttpTokenList(values, out tokens, allowWildcardMembers: headerName == AllowHeaders);
 
     private static bool TryParseDeltaSeconds(string value, out long seconds)
     {
@@ -580,7 +677,7 @@ internal static class CorsHeaderEvaluator
         return value[start..end];
     }
 
-    private static bool TryParseHttpTokenList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens)
+    private static bool TryParseHttpTokenList(IReadOnlyList<string> values, out IReadOnlyList<string> tokens, bool allowWildcardMembers = false)
     {
         var parsed = new List<string>();
         foreach (var value in values)
@@ -594,6 +691,12 @@ internal static class CorsHeaderEvaluator
                 }
 
                 var member = TrimHttpOws(value[memberStart..index]);
+                if (member.Length == 0)
+                {
+                    memberStart = index + 1;
+                    continue;
+                }
+
                 if (!IsHttpToken(member))
                 {
                     tokens = Array.Empty<string>();
@@ -605,7 +708,7 @@ internal static class CorsHeaderEvaluator
             }
         }
 
-        if (parsed.Count == 0 || parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal))
+        if (parsed.Count == 0 || (!allowWildcardMembers && parsed.Count > 1 && parsed.Contains("*", StringComparer.Ordinal)))
         {
             tokens = Array.Empty<string>();
             return false;
@@ -651,5 +754,13 @@ internal static class CorsHeaderEvaluator
         }
 
         return new List<string>();
+    }
+}
+
+internal sealed class RedirectNotSupportedException : Exception
+{
+    public RedirectNotSupportedException(string message)
+        : base(message)
+    {
     }
 }

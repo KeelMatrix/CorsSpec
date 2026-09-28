@@ -1,6 +1,6 @@
 # CorsSpec platform support
 
-This document defines the verified platform boundary for the `KeelMatrix.CorsSpec` 0.1.0 package. The package targets `.NET 8` (`net8.0`) and uses the caller-supplied `HttpClient`; core verification has no OS-specific filesystem or independent network behavior. The optional shared activation telemetry is a separate, best-effort process boundary with the allowlisted activation fields and storage/network/retention contract in [PRIVACY.md](../PRIVACY.md) and the [maintained KeelMatrix.Telemetry privacy policy](https://github.com/KeelMatrix/Telemetry/blob/main/app/PRIVACY.md). It is opt-out and suppressed in validation runs; it does not change the supported runtime boundary.
+This document defines the verified platform boundary for the `KeelMatrix.CorsSpec` 0.1.0 package. The package targets `.NET 8` (`net8.0`) and uses the caller-supplied `HttpClient`; core verification has no OS-specific filesystem or independent network behavior. The optional shared activation telemetry is a separate, best-effort process boundary with the allowlisted activation fields and storage/network/retention contract in [PRIVACY.md](../PRIVACY.md) and the [maintained KeelMatrix.Telemetry privacy policy](https://github.com/KeelMatrix/Telemetry/blob/main/PRIVACY.md). It is opt-out and suppressed in validation runs; it does not change the supported runtime boundary.
 
 ## Verified support
 
@@ -12,7 +12,7 @@ This document defines the verified platform boundary for the `KeelMatrix.CorsSpe
 
 The support claim depends on all three CI legs remaining green. The Windows claim is intentionally scoped to the pinned GitHub-hosted Windows Server 2025 x64 runner; this evidence does not establish compatibility with a specific Windows 10 or Windows 11 consumer host. The validation scripts use platform-native path joins, isolated temporary/cache paths, and the same package-consumer and ASP.NET Core evidence on each runner.
 
-The request contract is platform-independent: browser-standard method names are normalized to uppercase, custom method casing is preserved for exact allow-method matching, generated preflights carry only the package-owned `Accept: */*` and CORS metadata when a clean handler factory is supplied, factory-created preflights inherit the caller's timeout and cancellation boundary, preflighted `GET`/`HEAD`/`POST` requests do not require an allow-method token when present metadata is valid, raw C0/`DEL` path controls are rejected before the caller's handler, and raw scheme-like `://` text remains valid in relative query or fragment data on every supported platform.
+The request contract is platform-independent: browser-standard method names are normalized to uppercase, response allow-method tokens use exact casing, generated preflights carry only the package-owned `Accept: */*` and CORS metadata when a clean handler factory is supplied, factory-created preflights inherit the caller's timeout and cancellation boundary, preflighted `GET`/`HEAD`/`POST` requests do not require an allow-method token when present metadata is valid, raw C0/`DEL` path controls are rejected before the caller's handler, and raw scheme-like `://` text remains valid in relative query or fragment data on every supported platform.
 
 ## Consumer boundary
 

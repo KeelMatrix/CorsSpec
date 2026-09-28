@@ -9,20 +9,24 @@ public sealed class CorsScenario
     /// <param name="path">The application path sent through the supplied <see cref="HttpClient"/>.</param>
     /// <param name="origin">The origin metadata placed on the request; it is never contacted.</param>
     /// <param name="method">The actual request method. Browser-standard names are normalized to uppercase; custom method casing is preserved for exact allow-method matching.</param>
-    /// <param name="requestedHeaders">Header names that a browser would request permission to send. Values are not modeled, so every name conservatively forces a preflight; include caller-added default and per-request headers.</param>
+    /// <param name="requestedHeaders">Header names that a browser would request permission to send when their values are supplied by the caller outside this scenario. Unknown values conservatively force a preflight; simple safelisted names remain simple when their values are not modeled.</param>
     /// <param name="useCredentials">Whether the browser contract expects credentialed CORS permission.</param>
+    /// <param name="requestHeaders">Header names and values to serialize on the actual request. Values let the verifier classify value-sensitive safelisted headers.</param>
     public CorsScenario(
         string path,
         string origin,
         HttpMethod method,
         IEnumerable<string>? requestedHeaders = null,
-        bool useCredentials = false)
+        bool useCredentials = false,
+        IEnumerable<CorsRequestHeader>? requestHeaders = null)
     {
         Path = Validation.RequirePath(path);
         Origin = Validation.RequireOrigin(origin);
         Method = Validation.RequireMethod(method);
 
-        RequestedHeaders = Validation.NormalizeHeaderNames(requestedHeaders, nameof(requestedHeaders));
+        var declaredNames = Validation.NormalizeHeaderNames(requestedHeaders, nameof(requestedHeaders));
+        RequestHeaders = Validation.NormalizeRequestHeaders(requestHeaders, nameof(requestHeaders));
+        RequestedHeaders = Validation.MergeHeaderNames(declaredNames, RequestHeaders.Select(static header => header.Name));
         UseCredentials = useCredentials;
     }
 
@@ -35,15 +39,24 @@ public sealed class CorsScenario
     /// <summary>Gets the actual request method. Browser-standard names use their uppercase wire representation; custom method casing is preserved for exact allow-method matching.</summary>
     public HttpMethod Method { get; }
 
-    /// <summary>Gets the normalized names of headers requested by the preflight. Every requested name conservatively forces a preflight because values are not modeled.</summary>
+    /// <summary>Gets the normalized names declared for caller-supplied request headers.</summary>
     public IReadOnlyList<string> RequestedHeaders { get; }
+
+    /// <summary>Gets header values serialized on the actual request.</summary>
+    public IReadOnlyList<CorsRequestHeader> RequestHeaders { get; }
 
     /// <summary>Gets a value indicating whether the contract expects credentialed access.</summary>
     public bool UseCredentials { get; }
 
-    // Header values are intentionally outside the scenario API. Treat every requested header name as unsafe so a
-    // caller-added value-sensitive header cannot bypass the browser's value-dependent preflight decision.
-    internal bool RequiresPreflight => !IsSimpleMethod(Method) || RequestedHeaders.Count != 0;
+    internal bool RequiresPreflight => !IsSimpleMethod(Method) || RequestHeaders.Any(HeaderRequiresPreflight) ||
+        RequestedHeaders.Any(name => !RequestHeaders.Any(header => header.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) && !IsNameSafelistedWithoutValue(name));
+
+    private static bool HeaderRequiresPreflight(CorsRequestHeader header) => !Validation.IsCorsSafelistedRequestHeader(header.Name, header.Value);
+
+    internal static bool IsNameSafelistedWithoutValue(string name) =>
+        name.Equals("Accept", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Accept-Language", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsSimpleMethod(HttpMethod method) =>
         method == HttpMethod.Get || method == HttpMethod.Head || method == HttpMethod.Post;

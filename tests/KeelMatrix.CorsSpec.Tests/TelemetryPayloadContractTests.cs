@@ -1,81 +1,34 @@
-using System.Text.Json;
+using System.Net.Http;
+using KeelMatrix.CorsSpec;
 
 namespace KeelMatrix.CorsSpec.Tests;
 
 public sealed class TelemetryPayloadContractTests
 {
-    private static readonly string[] ExpectedActivationFields =
-    [
-        "ci",
-        "event",
-        "installation_hash",
-        "os",
-        "project_hash",
-        "runtime",
-        "schema_version",
-        "telemetry_version",
-        "timestamp",
-        "tool",
-        "tool_version"
-    ];
-
-    private static readonly string[] ProhibitedContractFieldFragments =
-    [
-        "authorization",
-        "body",
-        "cookie",
-        "credential",
-        "diagnostic",
-        "endpoint",
-        "exception",
-        "header",
-        "host",
-        "method",
-        "origin",
-        "path",
-        "request",
-        "response",
-        "token"
-    ];
-
     [Fact]
-    public void Captured_activation_payload_matches_shared_allowlist_and_excludes_contract_data()
+    public async Task Product_verdict_crosses_the_injected_telemetry_boundary_without_contract_data()
     {
-        // Captured from the KeelMatrix.Telemetry 0.1.1 activation contract.
-        const string capturedPayload = """
-            {
-              "event": "activation",
-              "tool": "corsspec",
-              "tool_version": "0.1.0",
-              "telemetry_version": "0.1.1",
-              "schema_version": 1,
-              "project_hash": "project-hash",
-              "installation_hash": "installation-hash",
-              "runtime": "net8.0",
-              "os": "windows",
-              "ci": false,
-              "timestamp": "2026-09-27T00:00:00Z"
-            }
-            """;
+        var telemetry = new RecordingTelemetry();
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(origin: "https://internal.example", methods: "DELETE", headers: "Authorization")
+            : ResponseFactory.Cors(origin: "https://internal.example", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
-        using var document = JsonDocument.Parse(capturedPayload);
-        var root = document.RootElement;
+        var result = await new CorsVerifier(client, handler.CreateSibling, telemetry, () => false).VerifyAsync(new CorsContract(
+            new CorsScenario(
+                "/private/orders",
+                "https://internal.example",
+                HttpMethod.Delete,
+                new[] { "Authorization" },
+                requestHeaders: new[] { new CorsRequestHeader("Authorization", "Bearer synthetic-secret") }),
+            CorsExpectation.Allowed()));
 
-        Assert.Equal(JsonValueKind.Object, root.ValueKind);
-        Assert.Equal(
-            ExpectedActivationFields,
-            root.EnumerateObject().Select(property => property.Name).OrderBy(name => name).ToArray());
-        Assert.Equal("activation", root.GetProperty("event").GetString());
-        Assert.Equal(JsonValueKind.Number, root.GetProperty("schema_version").ValueKind);
-        Assert.True(root.GetProperty("ci").ValueKind is JsonValueKind.True or JsonValueKind.False);
-        Assert.False(root.TryGetProperty("week", out _));
+        Assert.True(result.IsSuccess, result.Summary);
+        Assert.Equal(1, telemetry.ActivationCount);
 
-        foreach (var property in root.EnumerateObject())
-        {
-            foreach (var fragment in ProhibitedContractFieldFragments)
-            {
-                Assert.DoesNotContain(fragment, property.Name, StringComparison.OrdinalIgnoreCase);
-            }
-        }
+        var preflight = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Options);
+        Assert.DoesNotContain("Bearer synthetic-secret", preflight.Headers.ToString(), StringComparison.Ordinal);
+        var actual = Assert.Single(handler.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.Contains("Bearer synthetic-secret", actual.Headers.ToString(), StringComparison.Ordinal);
     }
 }

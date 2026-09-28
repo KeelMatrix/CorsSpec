@@ -59,7 +59,7 @@ if (-not $SkipPackage) {
     Invoke-ValidationStage -Name 'Package build' -Failures $failures -Command { dotnet pack $project --configuration Release --no-build --no-restore -p:Version=$Version --output $packages }
     $package = Join-Path $packages "KeelMatrix.CorsSpec.$Version.nupkg"
     $symbols = Join-Path $packages "KeelMatrix.CorsSpec.$Version.snupkg"
-    Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages }
+    Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages -RequireIcon:$RequireIcon }
     Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -ExpectedCommit $expectedCommit -RequireIcon:$RequireIcon }
     Invoke-ValidationStage -Name 'Package consumer smoke' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
 }

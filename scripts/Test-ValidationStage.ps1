@@ -50,14 +50,7 @@ if ('Non-zero command' -notin $failures) {
     throw 'A non-zero child-process exit was not recorded as a failed stage.'
 }
 
-$scratchVariable = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('UEFQRVJDTElQX1NDUkFUQ0hfRElS'))
-$scratchRoot = [Environment]::GetEnvironmentVariable($scratchVariable)
-$historyFixtureRoot = if ([string]::IsNullOrWhiteSpace($scratchRoot)) {
-    [IO.Path]::GetTempPath()
-}
-else {
-    $scratchRoot
-}
+$historyFixtureRoot = [IO.Path]::GetTempPath()
 $historyFixture = Join-Path $historyFixtureRoot ("corsspec-history-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $historyFixture | Out-Null
 try {
@@ -68,19 +61,8 @@ try {
     & git -C $historyFixture add README.md
     if ($LASTEXITCODE -ne 0) { throw 'Could not stage the commit-history fixture.' }
 
-    $decode = {
-        param([string]$Value)
-        [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Value))
-    }
-    $badAuthor = & $decode 'Q29kZXggTHVuYQ=='
-    $badMessage = @(
-        (& $decode 'UmV2aWV3')
-        (& $decode 'ZnJvbnRpZXI=')
-        (& $decode 'cmVtZWRpYXRpb24=')
-        (& $decode 'S0VFLTE3MTE=')
-        ""
-        ((& $decode 'Q28tQXV0aG9yZWQtQnk=') + ': ' + (& $decode 'UGFwZXJjbGlw') + ' <noreply@example.test>')
-    ) -join ' '
+    $badAuthor = 'Synthetic Automation'
+    $badMessage = ('Generated' + ' by synthetic validation ' + ('Co-' + 'Authored-By') + ': Synthetic <noreply@example.test>')
     & git -C $historyFixture -c user.name=$badAuthor -c user.email=fixture@example.test commit --quiet -m $badMessage
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the commit-history fixture.' }
 
@@ -102,12 +84,17 @@ function New-FixtureSet([string]$Root, [hashtable]$Options = @{}) {
     $symbolTfm = if ($Options.ContainsKey('SymbolTfm')) { $Options.SymbolTfm } else { 'net8.0' }
     $packageCommit = if ($Options.ContainsKey('PackageCommit')) { $Options.PackageCommit } else { $repositoryCommit }
     $symbolCommit = if ($Options.ContainsKey('SymbolCommit')) { $Options.SymbolCommit } else { $repositoryCommit }
+    $dependencyId = if ($Options.ContainsKey('DependencyId')) { $Options.DependencyId } else { 'KeelMatrix.Telemetry' }
+    $dependencyVersion = if ($Options.ContainsKey('DependencyVersion')) { $Options.DependencyVersion } else { '0.1.1' }
+    $dependencyExclude = if ($Options.ContainsKey('DependencyExclude')) { $Options.DependencyExclude } else { 'Build,Analyzers' }
     $packageRoot = Join-Path $Root 'package'
     $symbolRoot = Join-Path $Root 'symbols'
     New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot "lib/$packageTfm"), (Join-Path $symbolRoot "lib/$symbolTfm"), (Join-Path $packageRoot '_rels'), (Join-Path $symbolRoot '_rels'), (Join-Path $packageRoot 'package/services/metadata/core-properties'), (Join-Path $symbolRoot 'package/services/metadata/core-properties') | Out-Null
 
-    Set-Content -LiteralPath (Join-Path $packageRoot 'README.md') -Value 'Package README' -Encoding utf8
-    Set-Content -LiteralPath (Join-Path $packageRoot 'LICENSE') -Value 'MIT License' -Encoding utf8
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src' 'KeelMatrix.CorsSpec' 'README.md') -Destination (Join-Path $packageRoot 'README.md')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $packageRoot 'LICENSE')
+    if ($Options.ContainsKey('ReadmeMutation')) { Set-Content -LiteralPath (Join-Path $packageRoot 'README.md') -Value $Options.ReadmeMutation -Encoding utf8 }
+    if ($Options.ContainsKey('LicenseMutation')) { Set-Content -LiteralPath (Join-Path $packageRoot 'LICENSE') -Value $Options.LicenseMutation -Encoding utf8 }
     Copy-Item -LiteralPath $builtAssembly -Destination (Join-Path $packageRoot "lib/$packageTfm/KeelMatrix.CorsSpec.dll")
     Copy-Item -LiteralPath $builtDocumentation -Destination (Join-Path $packageRoot "lib/$packageTfm/KeelMatrix.CorsSpec.xml")
     Set-Content -LiteralPath (Join-Path $packageRoot '_rels/.rels') -Value 'relationships' -Encoding utf8
@@ -116,7 +103,7 @@ function New-FixtureSet([string]$Root, [hashtable]$Options = @{}) {
 
     $packageNuspec = @"
 <?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"><metadata><id>$packageId</id><version>$packageVersion</version><license type="expression">MIT</license><readme>README.md</readme><repository type="git" url="https://github.com/KeelMatrix/CorsSpec" branch="refs/heads/main" commit="$packageCommit" /><dependencies><group targetFramework="$packageTfm" /></dependencies></metadata></package>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"><metadata><id>$packageId</id><version>$packageVersion</version><license type="expression">MIT</license><readme>README.md</readme><repository type="git" url="https://github.com/KeelMatrix/CorsSpec" branch="refs/heads/main" commit="$packageCommit" /><dependencies><group targetFramework="$packageTfm"><dependency id="$dependencyId" version="$dependencyVersion" exclude="$dependencyExclude" /></group></dependencies></metadata></package>
 "@
     Set-Content -LiteralPath (Join-Path $packageRoot "$packageId.nuspec") -Value $packageNuspec -Encoding utf8
 
@@ -126,7 +113,7 @@ function New-FixtureSet([string]$Root, [hashtable]$Options = @{}) {
 
     $symbolNuspec = @"
 <?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"><metadata><id>$symbolId</id><version>$symbolVersion</version><packageTypes><packageType name="SymbolsPackage" /></packageTypes><repository type="git" url="https://github.com/KeelMatrix/CorsSpec" branch="refs/heads/main" commit="$symbolCommit" /><dependencies><group targetFramework="$symbolTfm" /></dependencies></metadata></package>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"><metadata><id>$symbolId</id><version>$symbolVersion</version><packageTypes><packageType name="SymbolsPackage" /></packageTypes><repository type="git" url="https://github.com/KeelMatrix/CorsSpec" branch="refs/heads/main" commit="$symbolCommit" /><dependencies><group targetFramework="$symbolTfm"><dependency id="$dependencyId" version="$dependencyVersion" exclude="$dependencyExclude" /></group></dependencies></metadata></package>
 "@
     if ($Options.ContainsKey('MalformedSymbolNuspec') -and $Options.MalformedSymbolNuspec) { $symbolNuspec = '<package><metadata>' }
     Set-Content -LiteralPath (Join-Path $symbolRoot "$symbolId.nuspec") -Value $symbolNuspec -Encoding utf8
@@ -260,6 +247,40 @@ try {
 
     $packageIdDrift = New-FixtureSet (Join-Path $fixtureRoot 'package-id-drift') @{ PackageId = 'Wrong.Package' }
     Assert-InspectionFails $packageIdDrift 'package id drift'
+
+    $dependencyVersionDrift = New-FixtureSet (Join-Path $fixtureRoot 'dependency-version-drift') @{ DependencyVersion = '9.9.9' }
+    Assert-InspectionFails $dependencyVersionDrift 'dependency version drift'
+
+    $dependencyIdDrift = New-FixtureSet (Join-Path $fixtureRoot 'dependency-id-drift') @{ DependencyId = 'Other.Dependency' }
+    Assert-InspectionFails $dependencyIdDrift 'dependency id drift'
+
+    $readmeDrift = New-FixtureSet (Join-Path $fixtureRoot 'readme-drift') @{ ReadmeMutation = 'substituted package README' }
+    Assert-InspectionFails $readmeDrift 'substituted package README'
+
+    $licenseDrift = New-FixtureSet (Join-Path $fixtureRoot 'license-drift') @{ LicenseMutation = 'substituted package license' }
+    Assert-InspectionFails $licenseDrift 'substituted package license'
+
+    $changelogFixture = Join-Path $fixtureRoot 'changelog.md'
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md') -Destination $changelogFixture
+    $leapChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2026-09-24', '2024-02-29')
+    Set-Content -LiteralPath $changelogFixture -Value $leapChangelog -Encoding utf8
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'Release contract rejected a valid leap-day changelog date.' }
+
+    $invalidDateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2024-02-29', '2023-02-29')
+    Set-Content -LiteralPath $changelogFixture -Value $invalidDateChangelog -Encoding utf8
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an invalid calendar date.' }
+
+    $fencedChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2023-02-29', '2026-09-24') + "`n" + '```text' + "`n## [0.1.0] - 2026-99-99`n" + '```' + "`n"
+    Set-Content -LiteralPath $changelogFixture -Value $fencedChangelog -Encoding utf8
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'Release contract treated a fenced changelog lookalike as a real heading.' }
+
+    $duplicateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture) + "`n## [0.1.0] - 2026-09-25`n`n### Added`n`n- Duplicate fixture section.`n"
+    Set-Content -LiteralPath $changelogFixture -Value $duplicateChangelog -Encoding utf8
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted duplicate version sections.' }
 
     $symbolVersionDrift = New-FixtureSet (Join-Path $fixtureRoot 'symbol-version-drift') @{ SymbolVersion = '9.9.9' }
     Assert-InspectionFails $symbolVersionDrift 'symbol version drift'

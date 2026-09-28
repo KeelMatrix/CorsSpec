@@ -4,9 +4,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $smoke = Join-Path $root 'tests' 'PackageSmoke' 'PackageSmoke.csproj'
-$feed = (Resolve-Path $PackageDirectory).Path
+$feed = (Get-Item -LiteralPath $PackageDirectory -ErrorAction Stop).FullName
 $runRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("keelmatrix-corsspec-package-smoke-" + [guid]::NewGuid().ToString('N'))
 $cache = Join-Path $runRoot 'packages'
 $httpCache = Join-Path $runRoot 'http-cache'
@@ -25,26 +25,30 @@ try {
     $env:NUGET_PACKAGES = $cache
     $env:NUGET_HTTP_CACHE_PATH = $httpCache
 
-@"
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="local-corsspec" value="$feed" />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
-  </packageSources>
-  <packageSourceMapping>
-    <clear />
-    <packageSource key="local-corsspec">
-      <package pattern="KeelMatrix.CorsSpec" />
-    </packageSource>
-    <packageSource key="nuget.org">
-      <package pattern="*" />
-      <package pattern="Microsoft.AspNetCore.TestHost" />
-    </packageSource>
-  </packageSourceMapping>
-</configuration>
-"@ | Set-Content -LiteralPath $config -Encoding utf8
+    $settings = [System.Xml.XmlWriterSettings]::new()
+    $settings.Indent = $true
+    $settings.Encoding = [Text.UTF8Encoding]::new($false)
+    $writer = [System.Xml.XmlWriter]::Create($config, $settings)
+    try {
+        $writer.WriteStartDocument()
+        $writer.WriteStartElement('configuration')
+        $writer.WriteStartElement('packageSources')
+        $writer.WriteStartElement('clear'); $writer.WriteEndElement()
+        $writer.WriteStartElement('add'); $writer.WriteAttributeString('key', 'local-corsspec'); $writer.WriteAttributeString('value', $feed); $writer.WriteEndElement()
+        $writer.WriteStartElement('add'); $writer.WriteAttributeString('key', 'nuget.org'); $writer.WriteAttributeString('value', 'https://api.nuget.org/v3/index.json'); $writer.WriteAttributeString('protocolVersion', '3'); $writer.WriteEndElement()
+        $writer.WriteEndElement()
+        $writer.WriteStartElement('packageSourceMapping')
+        $writer.WriteStartElement('clear'); $writer.WriteEndElement()
+        $writer.WriteStartElement('packageSource'); $writer.WriteAttributeString('key', 'local-corsspec')
+        $writer.WriteStartElement('package'); $writer.WriteAttributeString('pattern', 'KeelMatrix.CorsSpec'); $writer.WriteEndElement(); $writer.WriteEndElement()
+        $writer.WriteStartElement('packageSource'); $writer.WriteAttributeString('key', 'nuget.org')
+        $writer.WriteStartElement('package'); $writer.WriteAttributeString('pattern', '*'); $writer.WriteEndElement()
+        $writer.WriteStartElement('package'); $writer.WriteAttributeString('pattern', 'Microsoft.AspNetCore.TestHost'); $writer.WriteEndElement(); $writer.WriteEndElement()
+        $writer.WriteEndElement()
+        $writer.WriteEndElement()
+        $writer.WriteEndDocument()
+    }
+    finally { $writer.Dispose() }
 
     dotnet restore $smoke --configfile $config --force-evaluate --no-cache
     if ($LASTEXITCODE -eq 0) {

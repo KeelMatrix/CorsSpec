@@ -50,7 +50,7 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: pwsh -NoProfile -File ./scripts/Validate-ReleaseContract.ps1 -Tag $env:RELEASE_TAG -ArtifactDirectory ./artifacts/packages
+        run: pwsh -NoProfile -File ./scripts/Validate-ReleaseContract.ps1 -Tag $env:RELEASE_TAG -ArtifactDirectory ./artifacts/packages -RequireIcon
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7

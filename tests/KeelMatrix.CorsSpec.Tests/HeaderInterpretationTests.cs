@@ -189,7 +189,7 @@ public sealed class HeaderInterpretationTests
     }
 
     [Theory]
-    [InlineData("GET", "DELETE,")]
+    [InlineData("GET", "DELETE,\u001f")]
     [InlineData("HEAD", "DE LETE")]
     [InlineData("POST", "DELETE,\u001f")]
     public async Task Malformed_present_allow_methods_still_fail_for_safelisted_methods(string method, string allowMethods)
@@ -311,8 +311,8 @@ public sealed class HeaderInterpretationTests
     [InlineData("true", true)]
     [InlineData("True", false)]
     [InlineData("TRUE", false)]
-    [InlineData(" true", false)]
-    [InlineData("true ", false)]
+    [InlineData(" true", true)]
+    [InlineData("true ", true)]
     [InlineData("false", false)]
     [InlineData(null, false)]
     public async Task Credential_permission_requires_one_exact_lowercase_true_value(string? credentials, bool expectedSuccess)
@@ -478,19 +478,12 @@ public sealed class HeaderInterpretationTests
 
     [Theory]
     [InlineData("DELETE, bad method", "methods")]
-    [InlineData("DELETE,", "methods")]
-    [InlineData(", DELETE", "methods")]
-    [InlineData("DELETE,,GET", "methods")]
     [InlineData("DE LETE", "methods")]
     [InlineData("DELETE, DÉLETE", "methods")]
     [InlineData("DELETE,\u001f", "methods")]
     [InlineData("X-Trace, bad header", "headers")]
-    [InlineData("X-Trace,", "headers")]
-    [InlineData("X-Trace,,Authorization", "headers")]
     [InlineData("X:Trace", "headers")]
     [InlineData("X-Request-Id, bad header", "exposed")]
-    [InlineData("X-Request-Id,", "exposed")]
-    [InlineData("X-Request-Id,,X-Other", "exposed")]
     [InlineData("X:Request-Id", "exposed")]
     public async Task Malformed_cors_lists_fail_closed_even_when_the_expected_token_is_present(string value, string field)
     {
@@ -509,10 +502,10 @@ public sealed class HeaderInterpretationTests
     }
 
     [Fact]
-    public async Task Valid_cors_lists_accept_case_insensitive_tokens_and_http_ows()
+    public async Task Valid_cors_lists_apply_field_specific_case_and_http_ows_rules()
     {
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
-            ? ResponseFactory.Cors(methods: " \tDeLeTe\t ", headers: " \tx-trace\t ", maxAge: " \t600\t ")
+            ? ResponseFactory.Cors(methods: " \tDELETE\t ", headers: " \tx-trace\t ", maxAge: " \t600\t ")
             : ResponseFactory.Cors(exposed: " \tx-request-id\t ", vary: null));
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
@@ -563,7 +556,7 @@ public sealed class HeaderInterpretationTests
     [InlineData("methods")]
     [InlineData("headers")]
     [InlineData("exposed")]
-    public async Task Wildcard_list_members_cannot_be_combined_with_other_tokens(string field)
+    public async Task Wildcard_list_members_follow_their_field_specific_grammar(string field)
     {
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(
@@ -575,7 +568,7 @@ public sealed class HeaderInterpretationTests
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, field == "headers" ? new[] { "X-Trace" } : null),
             CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
 
-        Assert.False(result.IsSuccess, result.Summary);
+        Assert.Equal(field == "headers", result.IsSuccess);
     }
 
     [Fact]
@@ -604,6 +597,53 @@ public sealed class HeaderInterpretationTests
 
         Assert.False(authorizationResult.IsSuccess);
         Assert.Contains(authorizationResult.Issues, issue => issue.Kind == CorsFailureKind.RequestedHeaderRejected);
+    }
+
+    [Fact]
+    public async Task Header_wildcard_can_be_combined_with_an_explicit_authorization_member()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(headers: "*, Authorization")
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "Authorization" }),
+            CorsExpectation.Allowed()));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
+    public async Task Empty_cors_list_members_are_ignored_when_a_valid_member_remains()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: "DELETE,,", headers: "X-Trace,,Authorization")
+            : ResponseFactory.Cors(exposed: "X-Request-Id,,", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace", "Authorization" }),
+            CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" })));
+
+        Assert.True(result.IsSuccess, result.Summary);
+    }
+
+    [Fact]
+    public async Task Malformed_allow_headers_are_rejected_even_without_requested_headers()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(methods: "DELETE", headers: "bad header")
+            : ResponseFactory.Cors(vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
+            CorsExpectation.Allowed()));
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.RequestedHeaderRejected);
+        Assert.False(result.ActualRequestSent);
     }
 
     [Fact]
@@ -638,5 +678,23 @@ public sealed class HeaderInterpretationTests
 
         Assert.True(result.IsSuccess, result.Summary);
         Assert.Equal(HttpStatusCode.OK, result.ActualStatusCode);
+    }
+
+    [Fact]
+    public async Task Denied_preflight_grant_is_followed_by_actual_response_evaluation()
+    {
+        var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
+            ? ResponseFactory.Cors(origin: "https://untrusted.example", methods: "DELETE")
+            : ResponseFactory.Cors(origin: "https://untrusted.example", vary: null));
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+            new CorsScenario("/orders", "https://untrusted.example", HttpMethod.Delete),
+            CorsExpectation.Denied()));
+
+        Assert.False(result.IsSuccess);
+        Assert.True(result.PreflightSent);
+        Assert.True(result.ActualRequestSent);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.UnexpectedCorsPermission);
     }
 }

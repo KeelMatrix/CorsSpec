@@ -1,14 +1,21 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Tag,
-    [string]$ArtifactDirectory
+    [string]$ArtifactDirectory,
+    [string]$ChangelogPath,
+    [switch]$RequireIcon
 )
 
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectPath = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $propsPath = Join-Path $root 'Directory.Build.props'
-$changelogPath = Join-Path $root 'CHANGELOG.md'
+$changelogPath = if ([string]::IsNullOrWhiteSpace($ChangelogPath)) {
+    Join-Path $root 'CHANGELOG.md'
+}
+else {
+    (Resolve-Path -LiteralPath $ChangelogPath).Path
+}
 $repositoryCommit = (& git -C $root rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $repositoryCommit -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not resolve the checked-out repository commit for release artifact provenance validation.'
@@ -35,21 +42,54 @@ if ($declaredVersions.Count -ne 1 -or $declaredVersions[0] -ne $version) {
     throw "Release tag '$Tag' does not match the repository package version '$($declaredVersions -join ', ')'."
 }
 
-$changelog = Get-Content -Raw -LiteralPath $changelogPath
-if ($changelog -notmatch '(?m)^## \[Unreleased\]\s*$') {
-    throw 'CHANGELOG.md must contain a separate Unreleased section.'
+$changelogLines = @(Get-Content -LiteralPath $changelogPath)
+$headings = [System.Collections.Generic.List[object]]::new()
+$inFence = $false
+for ($index = 0; $index -lt $changelogLines.Count; $index++) {
+    $line = $changelogLines[$index]
+    if ($line.TrimStart().StartsWith('```', [StringComparison]::Ordinal)) {
+        $inFence = -not $inFence
+        continue
+    }
+    if ($inFence) { continue }
+    if ($line -match '^## \[(?<headingVersion>[^\]]+)\](?:\s+-\s+(?<date>\S+))?\s*$') {
+        $headingVersion = $Matches.headingVersion
+        $headingDate = $Matches.date
+        if ($headingVersion -eq 'Unreleased') {
+            $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $null; Index = $index })
+            continue
+        }
+
+        if ($headingVersion -notmatch '^\d+\.\d+\.\d+$' -or [string]::IsNullOrWhiteSpace($headingDate)) {
+            throw "CHANGELOG.md contains a release heading with an invalid version or missing date: '$line'."
+        }
+        $parsedDate = [DateTime]::MinValue
+        if (-not [DateTime]::TryParseExact($headingDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedDate)) {
+            throw "CHANGELOG.md contains an invalid calendar date '$headingDate' in '$line'."
+        }
+        $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $headingDate; Index = $index })
+    }
 }
 
-$escapedVersion = [regex]::Escape($version)
-$entryMatches = [regex]::Matches($changelog, "(?ms)^## \[$escapedVersion\] - (?<date>\d{4}-\d{2}-\d{2})\s*$.*?(?=^## |\z)")
-if ($entryMatches.Count -eq 0) {
-    throw "CHANGELOG.md has no dated entry for $version."
-}
-if ($entryMatches.Count -ne 1) {
-    throw "CHANGELOG.md contains $($entryMatches.Count) entries for $version; exactly one is required."
+if (@($headings | Where-Object Version -eq 'Unreleased').Count -ne 1) {
+    throw 'CHANGELOG.md must contain exactly one separate Unreleased section.'
 }
 
-$entry = $entryMatches[0].Value
+$versionHeadings = @($headings | Where-Object Version -ne 'Unreleased')
+$duplicateVersions = @($versionHeadings | Group-Object Version | Where-Object Count -ne 1)
+if ($duplicateVersions.Count -ne 0) {
+    throw "CHANGELOG.md contains duplicate release sections: $($duplicateVersions.Name -join ', ')."
+}
+
+$entryHeading = @($versionHeadings | Where-Object Version -eq $version)
+if ($entryHeading.Count -ne 1) {
+    throw "CHANGELOG.md must contain exactly one dated entry for $version."
+}
+$entryStart = $entryHeading[0].Index
+$entryEnd = $changelogLines.Count
+$nextHeading = @($headings | Where-Object { $_.Index -gt $entryStart } | Sort-Object Index | Select-Object -First 1)
+if ($nextHeading.Count -ne 0) { $entryEnd = $nextHeading[0].Index }
+$entry = ($changelogLines[$entryStart..($entryEnd - 1)] -join [Environment]::NewLine)
 if ($entry -match '(?im)\b(Planned|Unreleased|TBD|not yet published)\b') {
     throw "CHANGELOG.md marks $version as not finalized."
 }
@@ -84,7 +124,8 @@ if (-not [string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
     & pwsh -NoProfile -File $inspectionScript `
         -PackagePath (Join-Path $artifactRoot "$packageId.$version.nupkg") `
         -SymbolsPath (Join-Path $artifactRoot "$packageId.$version.snupkg") `
-        -ExpectedCommit $expectedCommit
+        -ExpectedCommit $expectedCommit `
+        -RequireIcon:$RequireIcon
     if ($LASTEXITCODE -ne 0) {
         throw 'Release artifacts failed content and identity inspection.'
     }

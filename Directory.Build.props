@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
     <DeterministicSourcePaths>true</DeterministicSourcePaths>
-    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <PathMap Condition="'$(MSBuildProjectName)' == 'KeelMatrix.CorsSpec'">$(MSBuildProjectDirectory)=/_/src/KeelMatrix.CorsSpec</PathMap>
     <ContinuousIntegrationBuild Condition="'$(Configuration)' == 'Release' Or '$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>

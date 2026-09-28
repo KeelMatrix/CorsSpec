@@ -34,5 +34,8 @@ public enum CorsFailureKind
     UnexpectedCorsPermission = 8,
 
     /// <summary>The caller's HttpClient could not complete a request.</summary>
-    NetworkFailure = 9
+    NetworkFailure = 9,
+
+    /// <summary>The supplied transport followed or exposed a redirect that this verifier cannot attribute safely.</summary>
+    RedirectNotSupported = 11
 }

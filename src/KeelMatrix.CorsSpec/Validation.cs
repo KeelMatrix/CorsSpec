@@ -96,6 +96,17 @@ internal static class Validation
     public static string RequireHeaderName(string name, string parameterName)
         => RequireHeaderName(name, parameterName, rejectBrowserManaged: true);
 
+    public static string RequireHeaderValue(string value, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.Any(static character => character <= '\u001f' || character == '\u007f'))
+        {
+            throw new ArgumentException($"'{parameterName}' contains a value with an invalid control character.", parameterName);
+        }
+
+        return value;
+    }
+
     private static string RequireHeaderName(string name, string parameterName, bool rejectBrowserManaged)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -143,6 +154,73 @@ internal static class Validation
 
         return Array.AsReadOnly(normalized.ToArray());
     }
+
+    public static IReadOnlyList<CorsRequestHeader> NormalizeRequestHeaders(IEnumerable<CorsRequestHeader>? headers, string parameterName)
+    {
+        if (headers is null)
+        {
+            return Array.Empty<CorsRequestHeader>();
+        }
+
+        var normalized = new SortedDictionary<string, CorsRequestHeader>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in headers)
+        {
+            if (header is null)
+            {
+                throw new ArgumentException($"'{parameterName}' contains a null header.", parameterName);
+            }
+
+            if (!normalized.TryAdd(header.Name, header))
+            {
+                throw new ArgumentException($"'{parameterName}' contains duplicate header name '{header.Name}'.", parameterName);
+            }
+        }
+
+        return Array.AsReadOnly(normalized.Values.ToArray());
+    }
+
+    public static IReadOnlyList<string> MergeHeaderNames(IEnumerable<string> declared, IEnumerable<string> valued)
+    {
+        var merged = new SortedSet<string>(declared, StringComparer.OrdinalIgnoreCase);
+        merged.UnionWith(valued);
+        return Array.AsReadOnly(merged.ToArray());
+    }
+
+    public static bool IsCorsSafelistedRequestHeader(string name, string value)
+    {
+        if (value.Length > 128 || value.Any(static character => character is '\u0000' or '\u0009' or (>= '\u000a' and <= '\u000d') or '\u001f' or '\u007f'))
+        {
+            return false;
+        }
+
+        if (name.Equals("Accept", StringComparison.OrdinalIgnoreCase))
+        {
+            return !value.Any(static character => character is '"' or '(' or ')' or ':' or '<' or '>' or '?' or '@' or '[' or '\\' or ']' or '{' or '}');
+        }
+
+        if (name.Equals("Accept-Language", StringComparison.OrdinalIgnoreCase) || name.Equals("Content-Language", StringComparison.OrdinalIgnoreCase))
+        {
+            return !value.Any(static character => !IsLanguageCharacter(character));
+        }
+
+        if (name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+        {
+            var mediaType = value.Split(';', 2)[0].Trim();
+            return mediaType.Equals("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) ||
+                mediaType.Equals("multipart/form-data", StringComparison.OrdinalIgnoreCase) ||
+                mediaType.Equals("text/plain", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (name.Equals("Range", StringComparison.OrdinalIgnoreCase))
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(value, "^bytes=\\d+-\\d*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        }
+
+        return false;
+    }
+
+    private static bool IsLanguageCharacter(char character) =>
+        character is >= '0' and <= '9' or >= 'A' and <= 'Z' or >= 'a' and <= 'z' or ' ' or '*' or ',' or '-' or '.' or ';' or '=';
 
     public static IReadOnlyList<string> NormalizeExpectedExposedHeaders(IEnumerable<string>? names, string parameterName)
     {
