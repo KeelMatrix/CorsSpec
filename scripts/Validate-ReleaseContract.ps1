@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectPath = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $propsPath = Join-Path $root 'Directory.Build.props'
@@ -121,7 +122,7 @@ if (-not [string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
     }
 
     $inspectionScript = Join-Path $PSScriptRoot 'Inspect-Package.ps1'
-    & pwsh -NoProfile -File $inspectionScript `
+    Invoke-NestedPwsh -NoProfile -File $inspectionScript `
         -PackagePath (Join-Path $artifactRoot "$packageId.$version.nupkg") `
         -SymbolsPath (Join-Path $artifactRoot "$packageId.$version.snupkg") `
         -ExpectedCommit $expectedCommit `

@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'))
 $config = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..' 'NuGet.config'))
 $expectedProjectPath = [IO.Path]::GetFullPath($project).Replace('\', '/')
@@ -16,7 +17,7 @@ New-Item -ItemType Directory -Force -Path $temporaryRoot | Out-Null
 function Invoke-JsonAudit([string[]]$Arguments, [string]$Label) {
     $stderrPath = Join-Path $temporaryRoot "$Label.stderr"
     if ($DotnetCommand.EndsWith('.ps1', [StringComparison]::OrdinalIgnoreCase)) {
-        $stdout = & pwsh -NoProfile -File $DotnetCommand @Arguments 2> $stderrPath | Out-String
+        $stdout = Invoke-NestedPwsh -NoProfile -File $DotnetCommand @Arguments 2> $stderrPath | Out-String
     }
     else {
         $stdout = & $DotnetCommand @Arguments 2> $stderrPath | Out-String

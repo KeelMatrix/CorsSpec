@@ -2,6 +2,7 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 . (Join-Path $PSScriptRoot 'Invoke-ValidationStage.ps1')
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.Reflection.Metadata
@@ -30,7 +31,7 @@ foreach ($artifact in @($builtAssembly, $builtDocumentation, $builtSymbols)) {
 }
 
 Invoke-ValidationStage -Name 'Successful command' -Failures $failures -Command {
-    pwsh -NoProfile -Command 'exit 0'
+    Invoke-NestedPwsh -NoProfile -Command 'exit 0'
 }
 if ($failures.Count -ne 0) {
     throw "A successful command was recorded as failed: $($failures -join ', ')."
@@ -44,7 +45,7 @@ if ('Missing command' -notin $failures) {
 }
 
 Invoke-ValidationStage -Name 'Non-zero command' -Failures $failures -Command {
-    pwsh -NoProfile -Command 'exit 7'
+    Invoke-NestedPwsh -NoProfile -Command 'exit 7'
 } 2>$null
 if ('Non-zero command' -notin $failures) {
     throw 'A non-zero child-process exit was not recorded as a failed stage.'
@@ -66,7 +67,7 @@ try {
     & git -C $historyFixture -c user.name=$badAuthor -c user.email=fixture@example.test commit --quiet -m $badMessage
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the commit-history fixture.' }
 
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1') -RepositoryPath $historyFixture 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1') -RepositoryPath $historyFixture 2>$null
     if ($LASTEXITCODE -eq 0) {
         throw 'Commit-history hygiene accepted an offending fixture.'
     }
@@ -220,12 +221,12 @@ function Add-DuplicateArchiveEntry([string]$ArchivePath, [string]$EntryName, [st
 }
 
 function Assert-InspectionPasses($Set) {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit
     if ($LASTEXITCODE -ne 0) { throw 'A valid package and symbol archive set was rejected.' }
 }
 
 function Assert-InspectionFails($Set, [string]$Reason) {
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $Set.Package -SymbolsPath $Set.Symbols -ExpectedCommit $repositoryCommit 2>$null
     if ($LASTEXITCODE -eq 0) { throw "Archive inspection accepted $Reason." }
 }
 
@@ -234,11 +235,11 @@ New-Item -ItemType Directory -Force -Path $fixtureRoot | Out-Null
 try {
     $valid = New-FixtureSet (Join-Path $fixtureRoot 'valid')
     Assert-InspectionPasses $valid
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $valid.Package -SymbolsPath $valid.Symbols -ExpectedCommit $repositoryCommit -RequireIcon 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $valid.Package -SymbolsPath $valid.Symbols -ExpectedCommit $repositoryCommit -RequireIcon 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Package inspection did not enforce the icon prerequisite.' }
     $extraArtifact = Join-Path (Split-Path -Parent $valid.Package) 'unexpected.nupkg'
     Set-Content -LiteralPath $extraArtifact -Value 'unexpected artifact' -Encoding utf8
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ArtifactDirectory (Split-Path -Parent $valid.Package) 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ArtifactDirectory (Split-Path -Parent $valid.Package) 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an unintended artifact.' }
     Remove-Item -LiteralPath $extraArtifact -Force
 
@@ -264,22 +265,22 @@ try {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md') -Destination $changelogFixture
     $leapChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2026-09-24', '2024-02-29')
     Set-Content -LiteralPath $changelogFixture -Value $leapChangelog -Encoding utf8
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Release contract rejected a valid leap-day changelog date.' }
 
     $invalidDateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2024-02-29', '2023-02-29')
     Set-Content -LiteralPath $changelogFixture -Value $invalidDateChangelog -Encoding utf8
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an invalid calendar date.' }
 
     $fencedChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2023-02-29', '2026-09-24') + "`n" + '```text' + "`n## [0.1.0] - 2026-99-99`n" + '```' + "`n"
     Set-Content -LiteralPath $changelogFixture -Value $fencedChangelog -Encoding utf8
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Release contract treated a fenced changelog lookalike as a real heading.' }
 
     $duplicateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture) + "`n## [0.1.0] - 2026-09-25`n`n### Added`n`n- Duplicate fixture section.`n"
     Set-Content -LiteralPath $changelogFixture -Value $duplicateChangelog -Encoding utf8
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted duplicate version sections.' }
 
     $symbolVersionDrift = New-FixtureSet (Join-Path $fixtureRoot 'symbol-version-drift') @{ SymbolVersion = '9.9.9' }
@@ -445,7 +446,7 @@ if (-not [string]::IsNullOrEmpty($env:FAKE_DEPENDENCY_AUDIT_STDERR)) {
         }
         $env:FAKE_DEPENDENCY_AUDIT_STDERR = $Stderr
         Remove-Item -LiteralPath $auditOutput -Force -ErrorAction SilentlyContinue
-        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-DependencyAudit.ps1') -DotnetCommand $fakeDotnet -OutputPath $auditOutput 2>$null | Out-Null
+        Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-DependencyAudit.ps1') -DotnetCommand $fakeDotnet -OutputPath $auditOutput 2>$null | Out-Null
         return $LASTEXITCODE
     }
 

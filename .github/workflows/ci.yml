@@ -41,6 +41,14 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Verify hidden child PowerShell launches
+        shell: pwsh
+        run: pwsh -NoProfile -File ./build/Test-NestedPwshLaunch.ps1 -SelfTest
+
+      - name: Verify repository child PowerShell launches
+        shell: pwsh
+        run: pwsh -NoProfile -File ./build/Test-NestedPwshLaunch.ps1
+
       - name: Run repository validation
         shell: pwsh
         run: pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -Version 0.1.0

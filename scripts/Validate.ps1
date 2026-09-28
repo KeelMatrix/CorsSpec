@@ -7,7 +7,13 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+. (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$launchGuard = Join-Path $root 'build/Test-NestedPwshLaunch.ps1'
+& $launchGuard -SelfTest
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard self-test failed.' }
+& $launchGuard
+if ($LASTEXITCODE -ne 0) { throw 'Nested PowerShell launch guard failed.' }
 $solution = Join-Path $root 'KeelMatrix.CorsSpec.sln'
 $project = Join-Path $root 'src' 'KeelMatrix.CorsSpec' 'KeelMatrix.CorsSpec.csproj'
 $packages = Join-Path $root 'artifacts' 'packages'
@@ -35,16 +41,16 @@ New-Item -ItemType Directory -Force -Path $packages | Out-Null
 
 $env:KEELMATRIX_NO_TELEMETRY = '1'
 Invoke-ValidationStage -Name 'Tracked-text hygiene' -Failures $failures -Command {
-    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-TrackedText.ps1')
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-TrackedText.ps1')
 }
 Invoke-ValidationStage -Name 'Commit history hygiene' -Failures $failures -Command {
-    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1')
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-CommitHistory.ps1')
 }
 Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
-    pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
 }
 if ($Mode -eq 'Full') {
-    Invoke-ValidationStage -Name 'Release contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" }
+    Invoke-ValidationStage -Name 'Release contract' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" }
 }
 Invoke-ValidationStage -Name 'Restore' -Failures $failures -Command { dotnet restore $solution --configfile (Join-Path $root 'NuGet.config') }
 Invoke-ValidationStage -Name 'Release build' -Failures $failures -Command { dotnet build $solution --configuration Release --no-restore }
@@ -59,13 +65,13 @@ if (-not $SkipPackage) {
     Invoke-ValidationStage -Name 'Package build' -Failures $failures -Command { dotnet pack $project --configuration Release --no-build --no-restore -p:Version=$Version --output $packages }
     $package = Join-Path $packages "KeelMatrix.CorsSpec.$Version.nupkg"
     $symbols = Join-Path $packages "KeelMatrix.CorsSpec.$Version.snupkg"
-    Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages -RequireIcon:$RequireIcon }
-    Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -ExpectedCommit $expectedCommit -RequireIcon:$RequireIcon }
-    Invoke-ValidationStage -Name 'Package consumer smoke' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
+    Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages -RequireIcon:$RequireIcon }
+    Invoke-ValidationStage -Name 'Package inspection' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Inspect-Package.ps1') -PackagePath $package -SymbolsPath $symbols -ExpectedCommit $expectedCommit -RequireIcon:$RequireIcon }
+    Invoke-ValidationStage -Name 'Package consumer smoke' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-PackageSmoke.ps1') -PackageDirectory $packages }
 }
 
 if ($Mode -eq 'Full') {
-    Invoke-ValidationStage -Name 'Dependency audit' -Failures $failures -Command { pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-DependencyAudit.ps1') }
+    Invoke-ValidationStage -Name 'Dependency audit' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Invoke-DependencyAudit.ps1') }
 }
 
 if ($failures.Count -ne 0) {
