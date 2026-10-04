@@ -52,38 +52,30 @@ public sealed class TelemetryTests
     }
 
     [Fact]
-    public async Task One_activation_is_requested_for_a_meaningful_matrix_execution()
+    public async Task Matrix_requests_activation_only_for_contracts_with_response_verdicts()
     {
         var telemetry = new RecordingTelemetry();
-        var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: null));
+        var handler = new RecordingHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/no-response" => throw new HttpRequestException("synthetic network failure"),
+            "/failed-verdict" => ResponseFactory.Cors(origin: "https://other.example", vary: null),
+            _ => ResponseFactory.Cors(vary: null)
+        });
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contracts = new CorsMatrix(new[]
         {
             AllowedSimpleContract(),
-            new CorsContract(
-                new CorsScenario("/other", "https://untrusted.example", HttpMethod.Get),
-                CorsExpectation.Denied())
+            new CorsContract(new CorsScenario("/no-response", "https://app.example", HttpMethod.Get), CorsExpectation.Allowed()),
+            new CorsContract(new CorsScenario("/failed-verdict", "https://app.example", HttpMethod.Get), CorsExpectation.Allowed())
         });
 
         var results = await new CorsVerifier(client, telemetry).VerifyMatrixAsync(contracts);
 
-        Assert.Equal(2, results.Count);
-        Assert.All(results, result => Assert.True(result.IsSuccess, result.Summary));
-        Assert.Equal(1, telemetry.ActivationCount);
-    }
-
-    [Fact]
-    public async Task Activation_signal_has_no_contract_data_fields()
-    {
-        var telemetry = new RecordingTelemetry();
-        var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
-
-        await new CorsVerifier(client, telemetry).VerifyAsync(new CorsContract(
-            new CorsScenario("/private/orders", "https://internal.example", HttpMethod.Get, new[] { "X-Private" }),
-            CorsExpectation.Allowed()));
-
-        Assert.Equal(1, telemetry.ActivationCount);
+        Assert.Equal(3, results.Count);
+        Assert.True(results[0].IsSuccess, results[0].Summary);
+        Assert.Contains(results[1].Issues, issue => issue.Kind == CorsFailureKind.NetworkFailure);
+        Assert.Contains(results[2].Issues, issue => issue.Kind == CorsFailureKind.MissingOrMismatchedAllowOrigin);
+        Assert.Equal(2, telemetry.ActivationCount);
     }
 
     private static CorsContract AllowedSimpleContract() => new(

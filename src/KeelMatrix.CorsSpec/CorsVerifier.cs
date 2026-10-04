@@ -12,7 +12,7 @@ public sealed class CorsVerifier
     /// <summary>Creates a verifier that uses the supplied client's configured handler and base address.</summary>
     /// <remarks>For a preflighted scenario, this overload fails closed when the client has default request headers. Use the handler-factory overload when caller defaults or handler-added headers must remain on the actual request only.</remarks>
     public CorsVerifier(HttpClient client)
-        : this(client, null, TelemetryHost.Create())
+        : this(client, null, new SharedTelemetry())
     {
     }
 
@@ -20,7 +20,7 @@ public sealed class CorsVerifier
     /// <param name="client">The caller-owned client used for actual requests and its base address.</param>
     /// <param name="preflightHandlerFactory">Creates a clean handler for each generated preflight. The handler must not add caller-wide or credential headers; the verifier disposes each returned handler after the preflight completes and applies the supplied client's timeout and cancellation boundary.</param>
     public CorsVerifier(HttpClient client, Func<HttpMessageHandler> preflightHandlerFactory)
-        : this(client, preflightHandlerFactory, TelemetryHost.Create())
+        : this(client, preflightHandlerFactory, new SharedTelemetry())
     {
     }
 
@@ -285,12 +285,9 @@ public sealed class CorsVerifier
         var results = new List<CorsVerificationResult>(matrix.Contracts.Count);
         foreach (var contract in matrix.Contracts)
         {
-            results.Add(await VerifyCoreAsync(contract, cancellationToken).ConfigureAwait(false));
-        }
-
-        if (results.Any(static result => result.HasVerdict))
-        {
-            _telemetry.TrackActivation();
+            var result = await VerifyCoreAsync(contract, cancellationToken).ConfigureAwait(false);
+            results.Add(result);
+            TrackActivationIfVerdict(result);
         }
 
         return results.AsReadOnly();

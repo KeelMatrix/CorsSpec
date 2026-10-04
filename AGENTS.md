@@ -20,7 +20,7 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 
 ## Invariants
 
-- The shipping library has no ASP.NET Core, test-framework, or browser dependency. It has an optional, best-effort `KeelMatrix.Telemetry` dependency for one aggregate activation signal after a response-level contract verdict; core request verification remains caller-owned. The activation allowlist is `event`, `tool`, `tool_version`, `telemetry_version`, `schema_version`, pseudonymous project/installation hashes, `runtime`, `os`, `ci`, and `timestamp`; no CORS contract data is sent. See `PRIVACY.md` and the maintained shared privacy policy for queue, network, opt-out, and retention behavior.
+- The shipping library has no ASP.NET Core, test-framework, or browser dependency. Its optional `KeelMatrix.Telemetry` adapter requests activation only when an individual contract reaches a response-level verdict; invalid contracts and operations without a response are ineligible. The adapter calls the parameterless shared API and passes no CORS contract data. Payload, opt-out, identity/state, deduplication, queue, delivery, and failure behavior belong to the shared package; see `PRIVACY.md` and its linked privacy contract.
 - `Origin` is never a destination. Only the caller's `HttpClient` performs I/O.
 - Allowed preflight verdicts require both a successful HTTP status and browser-relevant headers; actual-response status is never sufficient by itself.
 - Redirect responses and responses with a changed observed request URI are unsupported and must never stand in for the requested operation; redirect provenance is not inferred from an opaque handler.
