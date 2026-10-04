@@ -27,21 +27,4 @@ internal sealed class SharedTelemetry : ICorsTelemetry
 internal static class TelemetryHost
 {
     public static ICorsTelemetry Create() => new SharedTelemetry();
-
-    public static bool IsSuppressed() => IsSuppressed(Environment.GetEnvironmentVariable);
-
-    internal static bool IsSuppressed(Func<string, string?> getEnvironmentVariable) =>
-        string.Equals(getEnvironmentVariable("KEELMATRIX_NO_TELEMETRY"), "1", StringComparison.Ordinal);
-
-    public static void TrackActivation(ICorsTelemetry telemetry)
-    {
-        try
-        {
-            telemetry.TrackActivation();
-        }
-        catch
-        {
-            // Telemetry is best-effort and must never affect verification.
-        }
-    }
 }

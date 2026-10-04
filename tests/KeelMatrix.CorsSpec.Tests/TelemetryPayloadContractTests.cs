@@ -14,7 +14,7 @@ public sealed class TelemetryPayloadContractTests
             : ResponseFactory.Cors(origin: "https://internal.example", vary: null));
         using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
-        var result = await new CorsVerifier(client, handler.CreateSibling, telemetry, () => false).VerifyAsync(new CorsContract(
+        var result = await new CorsVerifier(client, handler.CreateSibling, telemetry).VerifyAsync(new CorsContract(
             new CorsScenario(
                 "/private/orders",
                 "https://internal.example",

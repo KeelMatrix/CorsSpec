@@ -152,8 +152,3 @@ internal sealed class RecordingTelemetry : ICorsTelemetry
 
     public void TrackActivation() => ActivationCount++;
 }
-
-internal sealed class ThrowingTelemetry : ICorsTelemetry
-{
-    public void TrackActivation() => throw new InvalidOperationException("synthetic telemetry delivery failure");
-}

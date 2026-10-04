@@ -51,7 +51,7 @@ public sealed class TelemetryBoundaryTests
                 ? ResponseFactory.Cors(origin: "https://internal.example", methods: "DELETE", headers: "Authorization")
                 : ResponseFactory.Cors(origin: "https://internal.example"));
             using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
-            var verification = new CorsVerifier(client, handler.CreateSibling, new SharedTelemetry(testToolName), static () => false).VerifyAsync(new CorsContract(
+            var verification = new CorsVerifier(client, handler.CreateSibling, new SharedTelemetry(testToolName)).VerifyAsync(new CorsContract(
                 new CorsScenario(
                     "/private/orders",
                     "https://internal.example",
