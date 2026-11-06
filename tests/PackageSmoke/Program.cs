@@ -101,10 +101,11 @@ if (!deniedPreflight.IsSuccess || !deniedPreflight.PreflightSent || deniedPrefli
 
 
 var requestsBeforeUnknown = optionsRequests;
+var unknownHeaderNames = new[] { "Accept" };
 foreach (var expectation in new[] { CorsExpectation.Allowed(), CorsExpectation.Denied() })
 {
     var unknown = await verifier.VerifyAsync(new CorsContract(
-        new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get, new[] { "Accept" }), expectation));
+        new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get, unknownHeaderNames), expectation));
     if (unknown.IsSuccess || !unknown.Issues.Any(issue => issue.Kind == CorsFailureKind.UnsupportedRequest) ||
         unknown.PreflightSent || unknown.ActualRequestSent)
     {
@@ -113,16 +114,31 @@ foreach (var expectation in new[] { CorsExpectation.Allowed(), CorsExpectation.D
 }
 if (optionsRequests != requestsBeforeUnknown) { throw new InvalidOperationException("Unknown values contacted the host."); }
 
+// Direct TestHost would format this raw value to 129 bytes. Neither polarity
+// can use a different host representation as evidence about the declared field.
+var rawValue = "text/plain;charset=" + new string('a', 109);
+foreach (var expectation in new[] { CorsExpectation.Allowed(), CorsExpectation.Denied() })
+{
+    var unsupported = await verifier.VerifyAsync(new CorsContract(
+        new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get,
+            requestHeaders: new[] { new CorsRequestHeader("Content-Type", rawValue) }), expectation));
+    if (unsupported.IsSuccess || !unsupported.Issues.Any(issue => issue.Kind == CorsFailureKind.UnsupportedRequest) ||
+        unsupported.PreflightSent || unsupported.ActualRequestSent)
+    {
+        throw new InvalidOperationException("TestHost formatting changes must be unsupported before host I/O.");
+    }
+}
+
 foreach (var length in new[] { 128, 129 })
 {
-    var value = "text/plain;charset=" + new string('a', length - "text/plain;charset=".Length);
+    var value = "text/plain; charset=" + new string('a', length - "text/plain; charset=".Length);
     var content = await verifier.VerifyAsync(new CorsContract(
         new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get,
             requestHeaders: new[] { new CorsRequestHeader("Content-Type", value) }), CorsExpectation.Denied()));
     if (content.PreflightSent != (length == 129) || content.IsSuccess != (length == 129) ||
         (length == 128 && observedContentType != value))
     {
-        throw new InvalidOperationException("Raw content-header byte boundaries differ from the actual host value.");
+        throw new InvalidOperationException($"Content header length {length}: passed={content.IsSuccess}, preflight={content.PreflightSent}, actual={content.ActualRequestSent}, observedLength={observedContentType.Length}, summary={content.Summary}");
     }
 }
 

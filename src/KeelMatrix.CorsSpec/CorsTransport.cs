@@ -72,6 +72,7 @@ internal sealed class CorsSendContext(CorsScenario scenario, bool prepare, bool 
     internal bool Prepare { get; } = prepare;
     internal bool Preflight { get; } = preflight;
     internal int Calls;
+    internal bool MaterializesHeaders { get; set; }
     internal Dictionary<string, Encoding> Encodings { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal EffectiveCorsRequest? Effective { get; set; }
     internal string? Expected { get; init; }
@@ -123,6 +124,14 @@ internal sealed class CorsSendBoundary : DelegatingHandler
         }
         var encoding = GetEncoding(request, context);
         var effective = EffectiveCorsRequest.Capture(request, context.Scenario, encoding, context.Preflight);
+        if (context.MaterializesHeaders)
+        {
+            EnsureTestHostRepresentation(request.Headers);
+            if (request.Content is not null)
+            {
+                EnsureTestHostRepresentation(request.Content.Headers);
+            }
+        }
         context.Effective = effective;
         if (context.PreflightHeaders is not null && context.PreflightHeaders != effective.HeaderValues)
         {
@@ -196,10 +205,27 @@ internal sealed class CorsSendBoundary : DelegatingHandler
              assembly.Name == "Microsoft.AspNetCore.TestHost" &&
              Convert.ToHexString(assembly.GetPublicKeyToken() ?? []).Equals("ADB9793829DDAE60", StringComparison.Ordinal)))
         {
+            context.MaterializesHeaders = !_allowTestHandler;
             return static _ => Encoding.UTF8;
         }
 
         throw new UnsupportedCorsRequestException("The terminal handler cannot establish a single-response transport. Use a supported direct TestHost or no-auto-redirect network handler.", CorsFailureKind.UnsupportedTransport);
+    }
+
+    private static void EnsureTestHostRepresentation(System.Net.Http.Headers.HttpHeaders headers)
+    {
+        var expected = headers.NonValidated.ToDictionary(static header => header.Key,
+            static header => string.Join(", ", header.Value), StringComparer.OrdinalIgnoreCase);
+        // TestHost copies the parsed IEnumerable<string> values into host headers.
+        // Its implicit formatter must not change the field observed by classification.
+        foreach (var header in headers)
+        {
+            var values = header.Value.ToArray();
+            if (values.Length != 1 || !expected.TryGetValue(header.Key, out var value) || values[0] != value)
+            {
+                throw new UnsupportedCorsRequestException("Direct TestHost would reformat or split an effective header. Supply a single canonical .NET header value or use a supported network transport.");
+            }
+        }
     }
 
     private static void CheckCookies(bool useCookies, CookieContainer cookies, HttpRequestMessage request, CorsSendContext context)
