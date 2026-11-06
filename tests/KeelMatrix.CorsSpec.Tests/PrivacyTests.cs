@@ -15,7 +15,7 @@ public sealed class PrivacyTests
             response.Headers.TryAddWithoutValidation("X-Diagnostic", "Bearer secret-token");
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
             CorsExpectation.Allowed());
@@ -37,9 +37,9 @@ public sealed class PrivacyTests
             response.Headers.TryAddWithoutValidation("X-Private", "private-response-header");
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);

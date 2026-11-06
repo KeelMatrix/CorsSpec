@@ -43,91 +43,84 @@ if ($declaredVersions.Count -ne 1 -or $declaredVersions[0] -ne $version) {
     throw "Release tag '$Tag' does not match the repository package version '$($declaredVersions -join ', ')'."
 }
 
+# Release notes use a deliberately bounded flat Markdown format. Reject constructs
+# whose rendering could hide or reinterpret headings and list entries.
 $changelogLines = @(Get-Content -LiteralPath $changelogPath)
 $headings = [System.Collections.Generic.List[object]]::new()
-$fenceCharacter = $null
-$fenceLength = 0
+$structure = [System.Collections.Generic.List[object]]::new()
 for ($index = 0; $index -lt $changelogLines.Count; $index++) {
     $line = $changelogLines[$index]
-    $fence = [regex]::Match($line, '^(?<indent> {0,3})(?<marker>`{3,}|~{3,})(?<info>.*)$')
-    if ($null -eq $fenceCharacter) {
-        if ($fence.Success) {
-            $marker = $fence.Groups['marker'].Value
-            if ($marker[0] -eq '`' -and $fence.Groups['info'].Value.Contains('`', [StringComparison]::Ordinal)) {
-                throw "CHANGELOG.md contains an unsupported backtick in a fenced-code info string: '$line'."
+    if ($line.Contains('<') -or $line.Contains('>') -or $line -match '`{3,}|~{3,}' -or
+        (-not [string]::IsNullOrWhiteSpace($line) -and ($line -match '^[ \t]' -or $line -match '^[-*_= \t]+$'))) {
+        throw "CHANGELOG.md uses unsupported comments, code blocks, HTML or container structure at line $($index + 1). Use flat headings and release bullets."
+    }
+
+    $heading = [regex]::Match($line, '^(?<level>#{1,6})(?:[ \t]+(?<text>.*?)|[ \t]*)$')
+    if ($heading.Success) {
+        $level = $heading.Groups['level'].Value.Length
+        $text = [regex]::Replace($heading.Groups['text'].Value, '[ \t]+#+[ \t]*$', '').Trim(' ', "`t")
+        if ($level -eq 1) {
+            if ($text -ne 'Changelog' -or $structure.Count -ne 0) {
+                throw 'CHANGELOG.md permits only its initial level-one Changelog heading.'
             }
-
-            $fenceCharacter = $marker[0]
-            $fenceLength = $marker.Length
-            continue
         }
+        elseif ($level -eq 2) {
+            $release = [regex]::Match($text, '^\[(?<version>Unreleased|[0-9]+\.[0-9]+\.[0-9]+)\](?:[ \t]+-[ \t]+(?<date>\S+))?$')
+            if (-not $release.Success) { throw "Unsupported release heading at line $($index + 1)." }
+            $headingVersion = $release.Groups['version'].Value
+            $headingDate = $release.Groups['date'].Value
+            if ($headingVersion -eq 'Unreleased') {
+                if ($headingDate.Length -ne 0) { throw 'Unreleased must not have a release date.' }
+            }
+            else {
+                $parsedDate = [DateTime]::MinValue
+                if (-not [DateTime]::TryParseExact($headingDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedDate)) {
+                    throw "CHANGELOG.md contains an invalid calendar date '$headingDate'."
+                }
+            }
+            $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $headingDate; Index = $index })
+        }
+        elseif ($level -ne 3) {
+            throw "Unsupported heading depth at line $($index + 1)."
+        }
+        $structure.Add([pscustomobject]@{ Kind = 'Heading'; Level = $level; Text = $text; Index = $index })
     }
-    else {
-        $closingFence = [regex]::Match($line, '^(?<indent> {0,3})(?<marker>`{3,}|~{3,})(?<tail>[ \t]*)$')
-        if ($closingFence.Success -and
-            $closingFence.Groups['marker'].Value[0] -eq $fenceCharacter -and
-            $closingFence.Groups['marker'].Value.Length -ge $fenceLength) {
-            $fenceCharacter = $null
-            $fenceLength = 0
-        }
-
-        continue
+    elseif ($line -match '^ {0,3}#' -or $line -match '^\s*[-=]+\s*$' -or $line -match '^\s*[+*][ \t]') {
+        throw "Unsupported Markdown structure at line $($index + 1)."
     }
-
-    if ($line -match '^## \[(?<headingVersion>[^\]]+)\](?:\s+-\s+(?<date>\S+))?\s*$') {
-        $headingVersion = $Matches.headingVersion
-        $headingDate = $Matches.date
-        if ($headingVersion -eq 'Unreleased') {
-            $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $null; Index = $index })
-            continue
-        }
-
-        if ($headingVersion -notmatch '^\d+\.\d+\.\d+$' -or [string]::IsNullOrWhiteSpace($headingDate)) {
-            throw "CHANGELOG.md contains a release heading with an invalid version or missing date: '$line'."
-        }
-        $parsedDate = [DateTime]::MinValue
-        if (-not [DateTime]::TryParseExact($headingDate, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$parsedDate)) {
-            throw "CHANGELOG.md contains an invalid calendar date '$headingDate' in '$line'."
-        }
-        $headings.Add([pscustomobject]@{ Version = $headingVersion; Date = $headingDate; Index = $index })
+    elseif ($line -match '^-[ \t]+\S') {
+        $structure.Add([pscustomobject]@{ Kind = 'Bullet'; Level = 0; Text = $line; Index = $index })
     }
-}
-
-if ($null -ne $fenceCharacter) {
-    throw 'CHANGELOG.md contains an unclosed fenced-code block.'
+    elseif (-not [string]::IsNullOrWhiteSpace($line)) {
+        $structure.Add([pscustomobject]@{ Kind = 'Text'; Level = 0; Text = $line; Index = $index })
+    }
 }
 
 if (@($headings | Where-Object Version -eq 'Unreleased').Count -ne 1) {
     throw 'CHANGELOG.md must contain exactly one separate Unreleased section.'
 }
-
 $versionHeadings = @($headings | Where-Object Version -ne 'Unreleased')
 $duplicateVersions = @($versionHeadings | Group-Object Version | Where-Object Count -ne 1)
 if ($duplicateVersions.Count -ne 0) {
     throw "CHANGELOG.md contains duplicate release sections: $($duplicateVersions.Name -join ', ')."
 }
-
 $entryHeading = @($versionHeadings | Where-Object Version -eq $version)
-if ($entryHeading.Count -ne 1) {
-    throw "CHANGELOG.md must contain exactly one dated entry for $version."
-}
+if ($entryHeading.Count -ne 1) { throw "CHANGELOG.md must contain exactly one dated entry for $version." }
 $entryStart = $entryHeading[0].Index
 $entryEnd = $changelogLines.Count
 $nextHeading = @($headings | Where-Object { $_.Index -gt $entryStart } | Sort-Object Index | Select-Object -First 1)
 if ($nextHeading.Count -ne 0) { $entryEnd = $nextHeading[0].Index }
-$entry = ($changelogLines[$entryStart..($entryEnd - 1)] -join [Environment]::NewLine)
+$entryNodes = @($structure | Where-Object { $_.Index -gt $entryStart -and $_.Index -lt $entryEnd })
+$categories = @($entryNodes | Where-Object Kind -eq 'Heading')
+if ($categories.Count -ne 1 -or $categories[0].Level -ne 3 -or $categories[0].Text -cne 'Added') {
+    throw "First release $version must contain exactly one Added category."
+}
+if (@($entryNodes | Where-Object { $_.Kind -eq 'Bullet' -and $_.Index -gt $categories[0].Index }).Count -eq 0) {
+    throw "First release $version must contain at least one Added entry."
+}
+$entry = ($entryNodes.Text -join [Environment]::NewLine)
 if ($entry -match '(?im)\b(Planned|Unreleased|TBD|not yet published)\b') {
     throw "CHANGELOG.md marks $version as not finalized."
-}
-if ($entry -notmatch '(?m)^### Added\s*$') {
-    throw "First release $version must contain an Added section."
-}
-if ($entry -match '(?im)^###\s+(?!Added\s*$)') {
-    throw "First release $version may contain only an Added section."
-}
-$addedSection = [regex]::Match($entry, '(?ms)^### Added\s*$.*?(?=^### |\z)').Value
-if ($addedSection -notmatch '(?m)^-\s+\S') {
-    throw "First release $version must contain at least one Added entry."
 }
 
 $unpublishedTransitionMarkers = '(?im)(?<![A-Za-z])(now|no longer|previously|formerly|used to|fixed|fixes|corrected|resolved|addressed|this removes|this fixes|changed from)(?![A-Za-z])'

@@ -18,7 +18,7 @@ public sealed class HeaderInterpretationTests
     public async Task Exact_origin_accepts_only_http_ows_wrapping(string responseOrigin, bool expectedSuccess)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: "Origin"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -39,7 +39,7 @@ public sealed class HeaderInterpretationTests
     public async Task Wildcard_origin_accepts_only_http_ows_wrapping(string responseOrigin, bool expectedSuccess)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -58,7 +58,7 @@ public sealed class HeaderInterpretationTests
             origin: responseOrigin,
             credentials: true,
             vary: "Origin"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
@@ -78,7 +78,7 @@ public sealed class HeaderInterpretationTests
     public async Task Vary_origin_requires_a_valid_http_token_list(string vary, bool expectedSuccess)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: vary));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -95,7 +95,7 @@ public sealed class HeaderInterpretationTests
     public async Task Malformed_preflight_origin_never_sends_the_actual_request(string responseOrigin)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: responseOrigin, vary: "Origin"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -112,7 +112,7 @@ public sealed class HeaderInterpretationTests
     public async Task A_success_status_does_not_hide_a_rejected_preflight_method()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: "GET"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
             CorsExpectation.Allowed());
@@ -137,7 +137,7 @@ public sealed class HeaderInterpretationTests
         bool expectedSuccess)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: allowedMethod, headers: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", new HttpMethod(requestedMethod)),
@@ -177,10 +177,10 @@ public sealed class HeaderInterpretationTests
             methods: allowMethods,
             headers: "X-Trace",
             credentials: useCredentials));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), new[] { "X-Trace" }, useCredentials),
+            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), new[] { "X-Trace" }, useCredentials, new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -195,10 +195,10 @@ public sealed class HeaderInterpretationTests
     public async Task Malformed_present_allow_methods_still_fail_for_safelisted_methods(string method, string allowMethods)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: allowMethods, headers: "X-Trace"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", new HttpMethod(method), requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.False(result.IsSuccess);
@@ -210,7 +210,7 @@ public sealed class HeaderInterpretationTests
     public async Task Non_safelisted_method_still_requires_an_exact_allow_methods_entry()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: null, headers: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -232,10 +232,10 @@ public sealed class HeaderInterpretationTests
             methods: null,
             headers: "*",
             credentials: useCredentials));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace" }, useCredentials),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace" }, useCredentials, new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.Equal(expectedSuccess, result.IsSuccess);
@@ -261,9 +261,9 @@ public sealed class HeaderInterpretationTests
     public async Task Allowed_preflight_requires_a_2xx_status_and_never_sends_actual_on_failure(int statusCode, bool expectedSuccess)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(statusCode: (HttpStatusCode)statusCode));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed());
 
         var result = await new CorsVerifier(client).VerifyAsync(contract);
@@ -283,9 +283,9 @@ public sealed class HeaderInterpretationTests
     public async Task Requested_header_rejection_is_distinct_from_method_rejection()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "X-Other"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed());
 
         var result = await new CorsVerifier(client).VerifyAsync(contract);
@@ -299,7 +299,7 @@ public sealed class HeaderInterpretationTests
     public async Task Credentialed_contract_requires_credentials_header_and_exact_origin()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "*", credentials: true));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
             CorsExpectation.Allowed());
@@ -330,7 +330,7 @@ public sealed class HeaderInterpretationTests
 
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
             CorsExpectation.Allowed());
@@ -353,7 +353,7 @@ public sealed class HeaderInterpretationTests
             response.Headers.TryAddWithoutValidation("Access-Control-Allow-Credentials", new[] { "true", "true" });
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
             CorsExpectation.Allowed()));
@@ -366,7 +366,7 @@ public sealed class HeaderInterpretationTests
     public async Task Wildcard_is_accepted_only_when_explicitly_expected_for_non_credentialed_contract()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "*", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
             CorsExpectation.Allowed(allowWildcardOrigin: true, requireVaryOrigin: true));
@@ -382,9 +382,9 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "*", headers: "*", vary: null)
             : ResponseFactory.Cors(exposed: "*", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" })));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -402,7 +402,7 @@ public sealed class HeaderInterpretationTests
     public async Task Cors_safelisted_response_headers_are_exposed_without_an_explicit_grant(string header)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { header })));
@@ -423,7 +423,7 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(
             credentials: true,
             vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { header })));
@@ -440,7 +440,7 @@ public sealed class HeaderInterpretationTests
             response.Headers.TryAddWithoutValidation("Access-Control-Expose-Headers", new[] { " X-Other ", " x-request-id " });
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" })));
@@ -465,7 +465,7 @@ public sealed class HeaderInterpretationTests
             credentials: useCredentials,
             exposed: actualExposed,
             vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: useCredentials),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { expectedHeader })));
@@ -495,10 +495,10 @@ public sealed class HeaderInterpretationTests
                 methods: field == "methods" ? value : "DELETE",
                 headers: field == "headers" ? value : "X-Trace")
             : ResponseFactory.Cors(exposed: field == "exposed" ? value : "X-Request-Id", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var expectedHeaders = field == "headers" ? new[] { "X-Trace" } : Array.Empty<string>();
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, expectedHeaders),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: expectedHeaders.Select(name => new CorsRequestHeader(name, "value"))),
             CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
 
         Assert.False(result.IsSuccess, result.Summary);
@@ -510,9 +510,9 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: " \tDELETE\t ", headers: " \tx-trace\t ", maxAge: " \t600\t ")
             : ResponseFactory.Cors(exposed: " \tx-request-id\t ", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }, expectedMaxAge: TimeSpan.FromMinutes(10))));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -528,7 +528,7 @@ public sealed class HeaderInterpretationTests
     public async Task Max_age_requires_one_ascii_digit_only_value(string value)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(maxAge: value));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
             CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromMinutes(10))));
@@ -546,7 +546,7 @@ public sealed class HeaderInterpretationTests
             response.Headers.TryAddWithoutValidation("Access-Control-Max-Age", "600");
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
             CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromMinutes(10))));
@@ -566,9 +566,9 @@ public sealed class HeaderInterpretationTests
                 methods: field == "methods" ? "*, DELETE" : "DELETE",
                 headers: field == "headers" ? "*, X-Trace" : "X-Trace")
             : ResponseFactory.Cors(exposed: field == "exposed" ? "*, X-Request-Id" : null, vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, field == "headers" ? new[] { "X-Trace" } : null),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: field == "headers" ? new[] { new CorsRequestHeader("X-Trace", "value") } : null),
             CorsExpectation.Allowed(expectedExposedHeaders: field == "exposed" ? new[] { "X-Request-Id" } : null)));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -580,10 +580,10 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: string.Empty, headers: "X-Trace")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -598,7 +598,7 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "DELETE", headers: string.Empty)
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -614,9 +614,9 @@ public sealed class HeaderInterpretationTests
     public async Task Credentialed_wildcards_do_not_grant_preflight_method_or_headers()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "https://app.example", methods: "*", headers: "*", credentials: true));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }, useCredentials: true),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace" }, useCredentials: true, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.False(result.IsSuccess);
@@ -629,9 +629,9 @@ public sealed class HeaderInterpretationTests
     public async Task Wildcards_do_not_cover_authorization()
     {
         var authorizationHandler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "*"));
-        using var authorizationClient = new HttpClient(authorizationHandler) { BaseAddress = new Uri("https://service.test") };
+        using var authorizationClient = new TestHttpClient(authorizationHandler) { BaseAddress = new Uri("https://service.test") };
         var authorizationResult = await new CorsVerifier(authorizationClient).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "Authorization" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("Authorization", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.False(authorizationResult.IsSuccess);
@@ -644,10 +644,10 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: "*, Authorization")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "Authorization" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("Authorization", "value") }),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -659,10 +659,10 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "DELETE,,", headers: "X-Trace,,Authorization")
             : ResponseFactory.Cors(exposed: "X-Request-Id,,", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace", "Authorization" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value"), new CorsRequestHeader("Authorization", "value") }),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" })));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -674,7 +674,7 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "DELETE", headers: "bad header")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -691,7 +691,7 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(vary: null, maxAge: "30")
             : ResponseFactory.Cors(vary: null, exposed: "X-Other"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }, expectedMaxAge: TimeSpan.FromSeconds(60), requireVaryOrigin: true));
@@ -708,7 +708,7 @@ public sealed class HeaderInterpretationTests
     public async Task Denied_simple_request_passes_without_requiring_a_failure_status()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://untrusted.example", HttpMethod.Get),
             CorsExpectation.Denied());
@@ -725,7 +725,7 @@ public sealed class HeaderInterpretationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(origin: "https://untrusted.example", methods: "DELETE")
             : ResponseFactory.Cors(origin: "https://untrusted.example", vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://untrusted.example", HttpMethod.Delete),

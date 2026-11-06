@@ -20,7 +20,7 @@ public sealed class RedirectTests
             response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -50,7 +50,7 @@ public sealed class RedirectTests
 
             throw new InvalidOperationException("actual request must not run");
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -70,7 +70,7 @@ public sealed class RedirectTests
             response.RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://other.test/orders");
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -89,7 +89,7 @@ public sealed class RedirectTests
             response.Headers.Location = new Uri("/redirect", UriKind.Relative);
             return response;
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Delete),
@@ -104,7 +104,7 @@ public sealed class RedirectTests
     [Fact]
     public async Task Mutated_request_uri_and_method_are_compared_with_the_pre_send_identity()
     {
-        using var client = new HttpClient(new MutatingRequestHandler()) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(new MutatingRequestHandler()) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -124,7 +124,7 @@ public sealed class RedirectTests
             response.Headers.Location = new Uri("https://other.test/orders");
             return response;
         });
-        using var client = new HttpClient(new RecordingHandler(_ => ResponseFactory.Cors()))
+        using var client = new TestHttpClient(new RecordingHandler(_ => ResponseFactory.Cors()))
         {
             BaseAddress = new Uri("https://service.test")
         };
@@ -143,7 +143,7 @@ public sealed class RedirectTests
     public async Task Non_redirect_304_response_is_not_classified_as_a_redirect()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(statusCode: HttpStatusCode.NotModified, vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
@@ -157,7 +157,7 @@ public sealed class RedirectTests
     [Fact]
     public async Task Opaque_transport_provenance_fails_closed()
     {
-        using var client = new HttpClient(new ResponseHandler(_ => new HttpResponseMessage(HttpStatusCode.OK), assignRequest: false))
+        using var client = new TestHttpClient(new ResponseHandler(_ => new HttpResponseMessage(HttpStatusCode.OK), assignRequest: false))
         {
             BaseAddress = new Uri("https://service.test")
         };

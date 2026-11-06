@@ -16,7 +16,7 @@ public sealed class PreflightPredicateTests
             yield return new object[] { header, new string('a', 129), true };
             if (header != "Content-Language")
             {
-                yield return new object[] { header, "a\tvalue", true };
+                yield return new object[] { header, "a\tvalue", header != "Accept" };
             }
         }
     }
@@ -27,7 +27,7 @@ public sealed class PreflightPredicateTests
     [InlineData("Content-Language")]
     public void Control_character_values_are_rejected_before_request_classification(string header)
     {
-        Assert.Throws<ArgumentException>(() => new CorsRequestHeader(header, "a\tvalue"));
+        Assert.Throws<ArgumentException>(() => new CorsRequestHeader(header, "a\u0001value"));
     }
 
     [Theory]
@@ -40,7 +40,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: header, maxAge: "60")
             : ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         CorsScenario scenario;
         if (header == "Content-Language")
         {
@@ -94,7 +94,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: header, maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, defaultValue);
 
         var requiresPreflight = header == "Accept" ? scenarioValue == "text/html?" : scenarioValue == "en_US";
@@ -124,7 +124,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? new HttpResponseMessage(HttpStatusCode.MethodNotAllowed)
             : new HttpResponseMessage(HttpStatusCode.OK));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, "text/html?");
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
@@ -150,7 +150,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: header, maxAge: "60")
             : ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, "caller-default");
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
@@ -166,7 +166,7 @@ public sealed class PreflightPredicateTests
     {
         const string header = "Accept";
         var handler = new RecordingHandler(_ => ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, UnsafeValue(header));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => new CorsVerifier(client).VerifyAsync(new CorsContract(
@@ -183,7 +183,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: header, maxAge: "60")
             : ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation(header, UnsafeValue(header));
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
@@ -197,14 +197,14 @@ public sealed class PreflightPredicateTests
     }
 
     [Theory]
-    [InlineData(1024, false)]
+    [InlineData(1024, true)]
     [InlineData(1025, true)]
     public async Task Aggregate_safelisted_value_size_controls_preflight_at_the_1024_byte_boundary(int totalBytes, bool requiresPreflight)
     {
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Accept", maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", totalBytes);
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
@@ -233,7 +233,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Accept", maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
@@ -257,16 +257,16 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Accept, Accept-Language, X-Trace", maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", 512);
         AddDefaultValues(client, "Accept-Language", 513);
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace", "Accept", "Accept-Language" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "X-Trace", "Accept", "Accept-Language" }, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromSeconds(60))));
 
         Assert.True(result.IsSuccess, result.Summary);
-        Assert.Equal(new[] { "accept, accept-language, x-trace" }, handler.Requests[0].Headers.GetValues("Access-Control-Request-Headers"));
+        Assert.Equal(new[] { "accept,accept-language,x-trace" }, handler.Requests[0].Headers.GetValues("Access-Control-Request-Headers"));
         Assert.Equal(2, handler.Requests.Count);
     }
 
@@ -276,7 +276,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Accept, Accept-Language", maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", 512);
         AddDefaultValues(client, "Accept-Language", 513);
 
@@ -287,7 +287,7 @@ public sealed class PreflightPredicateTests
         Assert.True(result.IsSuccess, result.Summary);
         Assert.True(result.PreflightSent);
         Assert.True(result.ActualRequestSent);
-        Assert.Equal(new[] { "accept, accept-language" }, handler.Requests[0].Headers.GetValues("Access-Control-Request-Headers"));
+        Assert.Equal(new[] { "accept,accept-language" }, handler.Requests[0].Headers.GetValues("Access-Control-Request-Headers"));
         Assert.Equal(2, handler.Requests.Count);
     }
 
@@ -297,7 +297,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Accept", maxAge: "60")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", 1024);
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
@@ -320,7 +320,7 @@ public sealed class PreflightPredicateTests
     public async Task Aggregate_over_limit_is_detected_before_one_argument_default_header_guard()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", 1025);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => new CorsVerifier(client).VerifyAsync(new CorsContract(
@@ -331,20 +331,20 @@ public sealed class PreflightPredicateTests
     }
 
     [Fact]
-    public async Task Aggregate_at_limit_remains_simple_with_one_argument_constructor()
+    public async Task Combined_default_field_over_128_bytes_requires_preflight_at_aggregate_limit()
     {
-        var handler = new RecordingHandler(_ => ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "Accept", vary: null));
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         AddDefaultValues(client, "Accept", 1024);
 
-        var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
+        var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "Accept" }),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);
-        Assert.False(result.PreflightSent);
+        Assert.True(result.PreflightSent);
         Assert.True(result.ActualRequestSent);
-        Assert.Single(handler.Requests);
+        Assert.Equal(2, handler.Requests.Count);
     }
 
     [Theory]
@@ -355,7 +355,7 @@ public sealed class PreflightPredicateTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Range")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation("Range", value);
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
@@ -366,6 +366,29 @@ public sealed class PreflightPredicateTests
         Assert.Equal(requiresPreflight, result.PreflightSent);
         Assert.Equal(requiresPreflight ? 2 : 1, handler.Requests.Count);
         Assert.True(result.ActualRequestSent);
+    }
+
+
+    [Fact]
+    public async Task All_invalid_control_classes_are_rejected_without_a_verdict_or_terminal_io()
+    {
+        foreach (var control in Enumerable.Range(0, 32).Append(127).Where(value => value != 9))
+        {
+            var value = "a" + (char)control + "b";
+            Assert.Throws<ArgumentException>(() => new CorsRequestHeader("Accept", value));
+            var handler = new RecordingHandler(_ => ResponseFactory.Cors());
+            using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", value);
+            foreach (var allowed in new[] { false, true })
+            {
+                var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
+                    new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { "Accept" }),
+                    allowed ? CorsExpectation.Allowed() : CorsExpectation.Denied()));
+                Assert.False(result.IsSuccess);
+                Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.UnsupportedRequest);
+                Assert.Empty(handler.Requests);
+            }
+        }
     }
 
     private static void AddDefaultValues(HttpClient client, string name, int totalBytes)

@@ -14,3 +14,9 @@ coverage/
 .env.*
 keelmatrix.telemetry.json
 *.log
+**/Properties/launchSettings.json
+*.userprefs
+.vscode/
+.DS_Store
+Thumbs.db
+*.cache

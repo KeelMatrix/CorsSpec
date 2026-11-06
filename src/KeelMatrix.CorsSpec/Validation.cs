@@ -186,9 +186,9 @@ internal static class Validation
         return Array.AsReadOnly(merged.ToArray());
     }
 
-    public static bool IsCorsSafelistedRequestHeader(string name, string value)
+    public static bool IsCorsSafelistedRequestHeader(string name, string value, int? byteCount = null)
     {
-        if (GetUtf8ByteCount(value) > 128 || ContainsCorsUnsafeRequestHeaderByte(value, name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)))
+        if ((byteCount ?? GetUtf8ByteCount(value)) > 128 || ContainsCorsUnsafeRequestHeaderByte(value))
         {
             return false;
         }
@@ -219,11 +219,11 @@ internal static class Validation
     private static bool IsLanguageCharacter(char character) =>
         character is >= '0' and <= '9' or >= 'A' and <= 'Z' or >= 'a' and <= 'z' or ' ' or '*' or ',' or '-' or '.' or ';' or '=';
 
-    private static bool ContainsCorsUnsafeRequestHeaderByte(string value, bool allowHorizontalTab)
+    private static bool ContainsCorsUnsafeRequestHeaderByte(string value)
     {
         foreach (var character in System.Text.Encoding.UTF8.GetBytes(value))
         {
-            if ((character < 0x20 && (character != 0x09 || !allowHorizontalTab)) ||
+            if ((character < 0x20 && character != 0x09) ||
                 character is 0x22 or 0x28 or 0x29 or 0x3a or 0x3c or 0x3e or 0x3f or 0x40 or 0x5b or 0x5c or 0x5d or 0x7b or 0x7d or 0x7f)
             {
                 return true;
@@ -237,24 +237,8 @@ internal static class Validation
 
     internal static string NormalizeRequestHeaderValue(string name, string value)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/");
-        System.Net.Http.Headers.HttpHeaders headers;
-        if (name.StartsWith("Content-", StringComparison.OrdinalIgnoreCase))
-        {
-            request.Content = new ByteArrayContent(Array.Empty<byte>());
-            headers = request.Content.Headers;
-        }
-        else
-        {
-            headers = request.Headers;
-        }
-
-        if (!headers.TryAddWithoutValidation(name, value))
-        {
-            throw new ArgumentException($"The request header '{name}' could not be serialized.", nameof(value));
-        }
-
-        return string.Join(", ", headers.GetValues(name));
+        RequireHeaderValue(value, nameof(value), allowHorizontalTab: true);
+        return value.Trim(' ', '\t');
     }
 
     private static bool IsCorsSafelistedContentType(string value)

@@ -50,7 +50,7 @@ public sealed class AspNetCorsPipelineTests
     {
         await using var host = await TestCorsHost.CreateAsync(CorsHostMode.Global);
         var contract = new CorsContract(
-            new CorsScenario("/orders", "https://global.example", HttpMethod.Delete, new[] { "X-Trace" }),
+            new CorsScenario("/orders", "https://global.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value") }),
             CorsExpectation.Allowed(expectedMaxAge: TimeSpan.FromMinutes(10), expectedExposedHeaders: new[] { "X-Request-Id" }));
 
         var result = await new CorsVerifier(host.Client).VerifyAsync(contract);
@@ -122,7 +122,8 @@ public sealed class AspNetCorsPipelineTests
             ("Authorization", "Bearer synthetic"),
             ("X-Trace", "handler-added"),
             ("Cookie", "session=synthetic"));
-        using var client = new HttpClient(actualRequests) { BaseAddress = host.Client.BaseAddress };
+        using var client = CorsTransport.CreateClient(actualRequests);
+        client.BaseAddress = host.Client.BaseAddress;
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://credentialed.example", HttpMethod.Delete, new[] { "Authorization", "X-Trace" }, useCredentials: true),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }));
@@ -132,7 +133,7 @@ public sealed class AspNetCorsPipelineTests
         Assert.True(result.IsSuccess, result.Summary);
         Assert.Equal(1, host.PreflightObservations);
         Assert.Equal(0, host.CredentialedPreflightRejections);
-        var actual = Assert.Single(actualRequests.Requests, request => request.Method == HttpMethod.Delete);
+        var actual = Assert.Single(actualRequests.Requests.Skip(1), request => request.Method == HttpMethod.Delete);
         Assert.Equal("Bearer synthetic", actual.Headers.GetValues("Authorization").Single());
         Assert.Equal("handler-added", actual.Headers.GetValues("X-Trace").Single());
         Assert.Equal("session=synthetic", actual.Headers.GetValues("Cookie").Single());

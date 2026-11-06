@@ -57,3 +57,7 @@ KeelMatrix.CorsSpec.CorsVerifier.VerifyAsync(KeelMatrix.CorsSpec.CorsContract! c
 KeelMatrix.CorsSpec.CorsVerifier.VerifyMatrixAsync(KeelMatrix.CorsSpec.CorsMatrix! matrix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<KeelMatrix.CorsSpec.CorsVerificationResult!>!>!
 static KeelMatrix.CorsSpec.CorsExpectation.Allowed(bool allowWildcardOrigin = false, System.Collections.Generic.IEnumerable<string!>? expectedExposedHeaders = null, System.TimeSpan? expectedMaxAge = null, bool requireVaryOrigin = false) -> KeelMatrix.CorsSpec.CorsExpectation!
 static KeelMatrix.CorsSpec.CorsExpectation.Denied() -> KeelMatrix.CorsSpec.CorsExpectation!
+KeelMatrix.CorsSpec.CorsTransport
+static KeelMatrix.CorsSpec.CorsTransport.CreateClient(System.Net.Http.HttpMessageHandler! handler) -> System.Net.Http.HttpClient!
+KeelMatrix.CorsSpec.CorsFailureKind.UnsupportedRequest = 12 -> KeelMatrix.CorsSpec.CorsFailureKind
+KeelMatrix.CorsSpec.CorsFailureKind.UnsupportedTransport = 13 -> KeelMatrix.CorsSpec.CorsFailureKind

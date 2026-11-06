@@ -7,11 +7,7 @@ public sealed class CorsRequestHeader
     public CorsRequestHeader(string name, string value)
     {
         Name = Validation.RequireHeaderName(name, nameof(name));
-        Value = Validation.RequireHeaderValue(
-            value,
-            nameof(value),
-            allowHorizontalTab: Name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
-                Name.Equals("Range", StringComparison.OrdinalIgnoreCase));
+        Value = Validation.NormalizeRequestHeaderValue(Name, value);
     }
 
     /// <summary>Gets the header name.</summary>

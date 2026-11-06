@@ -277,7 +277,7 @@ try {
     $fencedChangelog = $validReleaseChangelog + "`n" + '```text' + "`n## [0.1.0] - 2026-99-99`n" + '```' + "`n"
     Set-Content -LiteralPath $changelogFixture -Value $fencedChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
-    if ($LASTEXITCODE -ne 0) { throw 'Release contract treated a fenced changelog lookalike as a real heading.' }
+    if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an unsupported fenced changelog structure.' }
 
     $unreleasedOnlyChangelog = @"
 # Changelog

@@ -45,7 +45,7 @@ public sealed class LoopbackRedirectTests
         await using var host = await LoopbackCorsHost.CreateAsync();
         using var client = CreateClient(host.BaseAddress);
 
-        var result = await new CorsVerifier(client, () => new HttpClientHandler { AllowAutoRedirect = true, UseProxy = false })
+        var result = await new CorsVerifier(client, () => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false })
             .VerifyAsync(new CorsContract(
                 new CorsScenario("/method-changing-redirect", "https://app.example", HttpMethod.Delete),
                 CorsExpectation.Allowed()));
@@ -86,14 +86,17 @@ public sealed class LoopbackRedirectTests
         Assert.DoesNotContain(result.Issues, issue => issue.Kind == CorsFailureKind.RedirectNotSupported);
     }
 
-    private static HttpClient CreateClient(Uri baseAddress) => new(new HttpClientHandler
+    private static HttpClient CreateClient(Uri baseAddress)
     {
-        AllowAutoRedirect = true,
-        UseProxy = false
-    })
-    {
-        BaseAddress = baseAddress
-    };
+        var client = CorsTransport.CreateClient(new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            UseProxy = false
+        });
+        client.BaseAddress = baseAddress;
+        return client;
+    }
+
 }
 
 internal sealed class LoopbackCorsHost : IAsyncDisposable

@@ -21,7 +21,7 @@ public sealed class RequestGenerationTests
     public async Task Simple_request_sends_origin_and_actual_method_without_preflight()
     {
         var handler = new RecordingHandler(request => ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get),
             CorsExpectation.Allowed());
@@ -66,7 +66,7 @@ public sealed class RequestGenerationTests
                 headers: includeRequestedHeader ? "X-Trace" : null,
                 credentials: useCredentials);
         });
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
@@ -74,7 +74,7 @@ public sealed class RequestGenerationTests
                 "https://app.example",
                 new HttpMethod(method),
                 includeRequestedHeader ? new[] { "X-Trace" } : null,
-                useCredentials),
+                useCredentials, requestHeaders: includeRequestedHeader ? new[] { new CorsRequestHeader("X-Trace", "value") } : null),
             CorsExpectation.Allowed()));
 
         Assert.True(result.IsSuccess, result.Summary);
@@ -90,9 +90,9 @@ public sealed class RequestGenerationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(headers: "X-Trace, Authorization", maxAge: "600")
             : ResponseFactory.Cors(exposed: "X-Request-Id"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
-            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, new[] { "X-Trace", "Authorization" }),
+            new CorsScenario("/orders", "https://app.example", HttpMethod.Delete, requestHeaders: new[] { new CorsRequestHeader("X-Trace", "value"), new CorsRequestHeader("Authorization", "value") }),
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" }, expectedMaxAge: TimeSpan.FromMinutes(10)));
 
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(contract);
@@ -103,7 +103,7 @@ public sealed class RequestGenerationTests
         Assert.Equal(HttpMethod.Options, preflight.Method);
         Assert.Equal("https://app.example", preflight.Headers.GetValues("Origin").Single());
         Assert.Equal("DELETE", preflight.Headers.GetValues("Access-Control-Request-Method").Single());
-        Assert.Equal("authorization, x-trace", preflight.Headers.GetValues("Access-Control-Request-Headers").Single());
+        Assert.Equal("authorization,x-trace", preflight.Headers.GetValues("Access-Control-Request-Headers").Single());
         Assert.Equal(HttpMethod.Delete, handler.Requests[1].Method);
     }
 
@@ -111,7 +111,7 @@ public sealed class RequestGenerationTests
     public async Task Dedicated_preflight_handler_isolated_from_client_defaults_while_actual_keeps_them()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "Authorization, X-Trace", credentials: true));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-Trace", "caller-default");
         client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer synthetic");
@@ -142,7 +142,7 @@ public sealed class RequestGenerationTests
     public async Task Dedicated_preflight_handler_isolated_from_delegating_handler_headers_while_actual_keeps_them()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(headers: "Authorization, X-Trace", credentials: true));
-        using var client = new HttpClient(new HeaderAddingHandler(handler,
+        using var client = new TestHttpClient(new HeaderAddingHandler(handler,
             ("Authorization", "Bearer handler"),
             ("X-Trace", "handler"),
             ("Cookie", "session=handler")))
@@ -181,7 +181,7 @@ public sealed class RequestGenerationTests
     {
         var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
         var preflightHandler = new BlockingHandler();
-        using var client = new HttpClient(actualHandler)
+        using var client = new TestHttpClient(actualHandler)
         {
             BaseAddress = new Uri("https://service.test"),
             Timeout = TimeSpan.FromMilliseconds(100)
@@ -190,7 +190,7 @@ public sealed class RequestGenerationTests
             "/orders",
             "https://app.example",
             new HttpMethod(method),
-            requestedHeader is null ? null : new[] { requestedHeader });
+            requestHeaders: requestedHeader is null ? null : new[] { new CorsRequestHeader(requestedHeader, "value") });
 
         var operation = new CorsVerifier(client, () => preflightHandler).VerifyAsync(new CorsContract(
             scenario,
@@ -211,7 +211,7 @@ public sealed class RequestGenerationTests
     {
         var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
         var preflightHandler = new BlockingHandler();
-        using var client = new HttpClient(actualHandler)
+        using var client = new TestHttpClient(actualHandler)
         {
             BaseAddress = new Uri("https://service.test"),
             Timeout = Timeout.InfiniteTimeSpan
@@ -237,7 +237,7 @@ public sealed class RequestGenerationTests
         var actualHandler = new RecordingHandler(_ => ResponseFactory.Cors());
         var factoryDisposals = new List<Func<bool>>();
         var factoryCall = 0;
-        using var client = new HttpClient(actualHandler)
+        using var client = new TestHttpClient(actualHandler)
         {
             BaseAddress = new Uri("https://service.test"),
             Timeout = TimeSpan.FromMilliseconds(100)
@@ -276,7 +276,7 @@ public sealed class RequestGenerationTests
     {
         var actualHandler = new RecordingHandler(_ => throw new InvalidOperationException("actual request should not execute"));
         var preflightHandler = new FaultingHandler();
-        using var client = new HttpClient(actualHandler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(actualHandler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Patch),
             CorsExpectation.Allowed());
@@ -293,7 +293,7 @@ public sealed class RequestGenerationTests
     public async Task Undeclared_default_headers_fail_closed_before_any_request()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer synthetic");
 
         var contract = new CorsContract(
@@ -303,7 +303,7 @@ public sealed class RequestGenerationTests
         var result = await new CorsVerifier(client).VerifyAsync(contract);
 
         Assert.False(result.IsSuccess);
-        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.MalformedScenario);
+        Assert.Contains(result.Issues, issue => issue.Kind == CorsFailureKind.UnsupportedRequest);
         Assert.Empty(handler.Requests);
     }
 
@@ -311,7 +311,7 @@ public sealed class RequestGenerationTests
     public async Task Denied_preflight_does_not_send_actual_request()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(methods: "GET"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://untrusted.example", HttpMethod.Delete),
             CorsExpectation.Denied());
@@ -328,7 +328,7 @@ public sealed class RequestGenerationTests
     public async Task Origin_is_metadata_only_and_is_never_used_as_destination()
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "https://does-not-exist.invalid"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://does-not-exist.invalid", HttpMethod.Get),
             CorsExpectation.Allowed());
@@ -354,7 +354,7 @@ public sealed class RequestGenerationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: "GET", headers: header)
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
                 "/orders",
@@ -398,13 +398,13 @@ public sealed class RequestGenerationTests
         yield return new object[] { "bytes=０-１", false };
         yield return new object[] { "bytes=0 -1", false };
         yield return new object[] { "bytes=0- 1", false };
-        yield return new object[] { "bytes=0-1 ", false };
+        yield return new object[] { "bytes=0-1 ", true };
         yield return new object[] { "bytes=0--1", false };
         yield return new object[] { "bytes=0-1-2", false };
         yield return new object[] { "Bytes=0-1", false };
         yield return new object[] { "bytes=0", false };
         yield return new object[] { "bytes=0-\u00a0", false };
-        yield return new object[] { "bytes=0-\t", false };
+        yield return new object[] { "bytes=0-\t", true };
     }
 
     [Theory]
@@ -414,7 +414,7 @@ public sealed class RequestGenerationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Range")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
                 "/orders",
@@ -461,7 +461,7 @@ public sealed class RequestGenerationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: null, headers: "Content-Type")
             : ResponseFactory.Cors(vary: null));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client, handler.CreateSibling).VerifyAsync(new CorsContract(
             new CorsScenario(
                 "/orders",

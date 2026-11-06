@@ -40,6 +40,9 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 New-Item -ItemType Directory -Force -Path $packages | Out-Null
 
 $env:KEELMATRIX_NO_TELEMETRY = '1'
+Invoke-ValidationStage -Name 'IDE ignore coverage' -Failures $failures -Command {
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-IgnoreCoverage.ps1')
+}
 Invoke-ValidationStage -Name 'Tracked-text hygiene' -Failures $failures -Command {
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-TrackedText.ps1')
 }
@@ -50,6 +53,9 @@ if ($env:CORSSPEC_SKIP_VALIDATION_STAGE -ne '1') {
     Invoke-ValidationStage -Name 'Validation stage regression' -Failures $failures -Command {
         Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ValidationStage.ps1')
     }
+}
+Invoke-ValidationStage -Name 'Release structure regression' -Failures $failures -Command {
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-ReleaseStructure.ps1')
 }
 if ($Mode -eq 'Full') {
     Invoke-ValidationStage -Name 'Release contract' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" }

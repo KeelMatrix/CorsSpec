@@ -10,7 +10,7 @@ public sealed class ValidationTests
     public async Task Contradictory_credentialed_wildcard_expectation_fails_before_io()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var contract = new CorsContract(
             new CorsScenario("/orders", "https://app.example", HttpMethod.Get, useCredentials: true),
             CorsExpectation.Allowed(allowWildcardOrigin: true));
@@ -40,7 +40,7 @@ public sealed class ValidationTests
     public void Scenario_rejects_absolute_authority_and_windows_separator_paths(string path)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
         Assert.Empty(handler.Requests);
@@ -75,7 +75,7 @@ public sealed class ValidationTests
     public void Scenario_rejects_root_relative_windows_drive_paths_before_uri_construction_and_io(string path)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
         Assert.Empty(handler.Requests);
@@ -91,7 +91,7 @@ public sealed class ValidationTests
     public void Browser_forbidden_methods_are_rejected_before_io(string method)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         Assert.Throws<ArgumentException>(() => new CorsScenario("/orders", "https://app.example", new HttpMethod(method)));
         Assert.Empty(handler.Requests);
@@ -118,7 +118,7 @@ public sealed class ValidationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: expected)
             : ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var scenario = new CorsScenario("/orders", "https://app.example", new HttpMethod(input));
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
@@ -157,7 +157,7 @@ public sealed class ValidationTests
         var handler = new RecordingHandler(request => request.Method == HttpMethod.Options
             ? ResponseFactory.Cors(methods: customMethod)
             : ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var scenario = new CorsScenario("/orders", "https://app.example", new HttpMethod(customMethod));
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(scenario, CorsExpectation.Allowed()));
@@ -181,7 +181,7 @@ public sealed class ValidationTests
     public void Scenario_rejects_every_raw_c0_control_and_del_path_before_io(string path)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         Assert.Throws<ArgumentException>(() => new CorsScenario(path, "https://app.example", HttpMethod.Get));
         Assert.Empty(handler.Requests);
@@ -232,7 +232,7 @@ public sealed class ValidationTests
     public async Task Relative_targets_accept_and_send_scheme_like_query_or_fragment_data(string path)
     {
         var handler = new RecordingHandler(_ => ResponseFactory.Cors());
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(
             new CorsScenario(path, "https://app.example", HttpMethod.Get),
@@ -311,7 +311,7 @@ public sealed class ValidationTests
     public void Conditional_override_header_whitespace_is_rejected_before_io(string header)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         Assert.Throws<ArgumentException>(() => new CorsScenario("/orders", "https://app.example", HttpMethod.Get, new[] { header }));
         Assert.Empty(handler.Requests);
@@ -325,7 +325,7 @@ public sealed class ValidationTests
     public void Forbidden_response_header_expectations_fail_before_io(string header)
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("request should not execute"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
 
         var exception = Assert.Throws<ArgumentException>(() =>
             CorsExpectation.Allowed(expectedExposedHeaders: new[] { header, header }));
@@ -427,7 +427,7 @@ public sealed class ValidationTests
         var expectation = CorsExpectation.Allowed(expectedExposedHeaders: new[] { "X-Request-Id" });
         var matrix = new CorsMatrix(new[] { new CorsContract(scenario, expectation) });
         var handler = new RecordingHandler(_ => ResponseFactory.Cors(origin: "https://other.example"));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var result = await new CorsVerifier(client).VerifyAsync(new CorsContract(scenario, expectation));
 
         AssertReadOnly(scenario.RequestedHeaders);
@@ -450,7 +450,7 @@ public sealed class ValidationTests
     public async Task Matrix_verification_returns_one_result_per_contract()
     {
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://service.test") };
+        using var client = new TestHttpClient(handler) { BaseAddress = new Uri("https://service.test") };
         var scenario = new CorsScenario("/orders", "https://app.example", HttpMethod.Get);
         var matrix = new CorsMatrix(new[]
         {

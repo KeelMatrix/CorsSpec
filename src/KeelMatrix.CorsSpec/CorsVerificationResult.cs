@@ -23,7 +23,8 @@ public sealed class CorsVerificationResult
         Issues = Array.AsReadOnly(issues.ToArray());
     }
 
-    internal bool HasVerdict => PreflightStatusCode is not null || ActualStatusCode is not null;
+    internal bool HasVerdict => (ActualStatusCode is not null || (PreflightStatusCode is not null && !ActualRequestSent)) &&
+        !Issues.Any(static issue => issue.Kind is CorsFailureKind.UnsupportedRequest or CorsFailureKind.UnsupportedTransport or CorsFailureKind.RedirectNotSupported);
 
     /// <summary>Gets the contract that was evaluated.</summary>
     public CorsContract Contract { get; }
@@ -31,13 +32,13 @@ public sealed class CorsVerificationResult
     /// <summary>Gets a value indicating whether the contract passed.</summary>
     public bool IsSuccess { get; }
 
-    /// <summary>Gets a value indicating whether an OPTIONS preflight was sent.</summary>
+    /// <summary>Gets a value indicating whether an OPTIONS preflight was attempted through the client.</summary>
     public bool PreflightSent { get; }
 
     /// <summary>Gets the preflight status for diagnostics; it is never the CORS verdict.</summary>
     public HttpStatusCode? PreflightStatusCode { get; }
 
-    /// <summary>Gets a value indicating whether the actual request was sent.</summary>
+    /// <summary>Gets a value indicating whether the actual request was attempted through the client.</summary>
     public bool ActualRequestSent { get; }
 
     /// <summary>Gets the actual response status for context; it is never the CORS verdict.</summary>

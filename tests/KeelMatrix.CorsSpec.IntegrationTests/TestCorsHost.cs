@@ -17,7 +17,8 @@ internal sealed class TestCorsHost : IAsyncDisposable
         _application = application;
         _preflightObservations = preflightObservations;
         _credentialedPreflightRejections = credentialedPreflightRejections;
-        Client = application.GetTestClient();
+        Client = CorsTransport.CreateClient(application.GetTestServer().CreateHandler());
+        Client.BaseAddress = new Uri("http://localhost");
     }
 
     public HttpClient Client { get; }

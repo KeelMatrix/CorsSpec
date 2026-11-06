@@ -37,5 +37,11 @@ public enum CorsFailureKind
     NetworkFailure = 9,
 
     /// <summary>The supplied transport followed or exposed a redirect that this verifier cannot attribute safely.</summary>
-    RedirectNotSupported = 11
+    RedirectNotSupported = 11,
+
+    /// <summary>The effective request cannot be classified or serialized by the supported transport contract.</summary>
+    UnsupportedRequest = 12,
+
+    /// <summary>The supplied client has no observable single-response transport boundary.</summary>
+    UnsupportedTransport = 13
 }

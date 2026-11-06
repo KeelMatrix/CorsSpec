@@ -152,3 +152,11 @@ internal sealed class RecordingTelemetry : ICorsTelemetry
 
     public void TrackActivation() => ActivationCount++;
 }
+
+internal sealed class TestHttpClient : HttpClient
+{
+    public TestHttpClient(HttpMessageHandler handler) : base(CorsTransport.Wrap(handler, allowTestHandler: true))
+    {
+        CorsTransport.Register(this, allowTestHandler: true);
+    }
+}

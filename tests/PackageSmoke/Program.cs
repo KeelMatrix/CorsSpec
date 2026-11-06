@@ -19,6 +19,7 @@ builder.Services.AddCors(options => options.AddPolicy("smoke", policy => policy
 var app = builder.Build();
 app.UseRouting();
 var observedAccept = string.Empty;
+var observedContentType = string.Empty;
 var optionsRequests = 0;
 app.Use(async (context, next) =>
 {
@@ -43,6 +44,7 @@ app.Use(async (context, next) =>
     if (context.Request.Method == HttpMethod.Get.Method && context.Request.Path == "/orders")
     {
         observedAccept = context.Request.Headers.Accept.ToString();
+        observedContentType = context.Request.Headers.ContentType.ToString();
     }
 
     if (context.Request.Method == "PATCH")
@@ -55,7 +57,8 @@ app.Use(async (context, next) =>
 app.MapMethods("/orders", allowedMethods, () => Results.Ok());
 await app.StartAsync();
 
-using var client = app.GetTestClient();
+using var client = CorsTransport.CreateClient(app.GetTestServer().CreateHandler());
+client.BaseAddress = new Uri("http://localhost");
 client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html?");
 var precedenceVerifier = new CorsVerifier(client, app.GetTestServer().CreateHandler);
 var allowed = await precedenceVerifier.VerifyAsync(new CorsContract(
@@ -69,7 +72,8 @@ if (!allowed.IsSuccess || allowed.PreflightSent || allowed.ActualRequestSent == 
     throw new InvalidOperationException($"Package smoke failed for effective request precedence. Allowed: {allowed.Summary} Accept: {observedAccept} OPTIONS: {optionsRequests}.");
 }
 
-using var cleanClient = app.GetTestClient();
+using var cleanClient = CorsTransport.CreateClient(app.GetTestServer().CreateHandler());
+cleanClient.BaseAddress = new Uri("http://localhost");
 var verifier = new CorsVerifier(cleanClient, app.GetTestServer().CreateHandler);
 var denied = await verifier.VerifyAsync(new CorsContract(
     new CorsScenario("/orders", "https://denied.example", HttpMethod.Get),
@@ -80,7 +84,7 @@ if (!denied.IsSuccess)
 }
 
 var allowedPreflight = await verifier.VerifyAsync(new CorsContract(
-    new CorsScenario("/orders", "https://allowed.example", new HttpMethod("PATCH"), requestedHeaderNames),
+    new CorsScenario("/orders", "https://allowed.example", new HttpMethod("PATCH"), requestHeaders: requestedHeaderNames.Select(name => new CorsRequestHeader(name, "smoke"))),
     CorsExpectation.Allowed()));
 if (!allowedPreflight.IsSuccess || !allowedPreflight.PreflightSent || !allowedPreflight.ActualRequestSent || patchRequests != 1)
 {
@@ -88,11 +92,38 @@ if (!allowedPreflight.IsSuccess || !allowedPreflight.PreflightSent || !allowedPr
 }
 
 var deniedPreflight = await verifier.VerifyAsync(new CorsContract(
-    new CorsScenario("/orders", "https://denied.example", new HttpMethod("PATCH"), requestedHeaderNames),
+    new CorsScenario("/orders", "https://denied.example", new HttpMethod("PATCH"), requestHeaders: requestedHeaderNames.Select(name => new CorsRequestHeader(name, "smoke"))),
     CorsExpectation.Denied()));
 if (!deniedPreflight.IsSuccess || !deniedPreflight.PreflightSent || deniedPreflight.ActualRequestSent || patchRequests != 1)
 {
     throw new InvalidOperationException($"Package smoke failed for denied preflight. {deniedPreflight.Summary} PATCH requests: {patchRequests}.");
+}
+
+
+var requestsBeforeUnknown = optionsRequests;
+foreach (var expectation in new[] { CorsExpectation.Allowed(), CorsExpectation.Denied() })
+{
+    var unknown = await verifier.VerifyAsync(new CorsContract(
+        new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get, new[] { "Accept" }), expectation));
+    if (unknown.IsSuccess || !unknown.Issues.Any(issue => issue.Kind == CorsFailureKind.UnsupportedRequest) ||
+        unknown.PreflightSent || unknown.ActualRequestSent)
+    {
+        throw new InvalidOperationException("Missing effective values must produce an unsupported configuration.");
+    }
+}
+if (optionsRequests != requestsBeforeUnknown) { throw new InvalidOperationException("Unknown values contacted the host."); }
+
+foreach (var length in new[] { 128, 129 })
+{
+    var value = "text/plain;charset=" + new string('a', length - "text/plain;charset=".Length);
+    var content = await verifier.VerifyAsync(new CorsContract(
+        new CorsScenario("/orders", "https://allowed.example", HttpMethod.Get,
+            requestHeaders: new[] { new CorsRequestHeader("Content-Type", value) }), CorsExpectation.Denied()));
+    if (content.PreflightSent != (length == 129) || content.IsSuccess != (length == 129) ||
+        (length == 128 && observedContentType != value))
+    {
+        throw new InvalidOperationException("Raw content-header byte boundaries differ from the actual host value.");
+    }
 }
 
 Console.WriteLine("Package consumer smoke passed: simple and preflight allowed/denied CORS contracts verified.");
