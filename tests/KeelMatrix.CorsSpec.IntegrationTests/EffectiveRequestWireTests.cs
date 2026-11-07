@@ -317,13 +317,18 @@ internal sealed class RawCorsServer : IAsyncDisposable
     private readonly Task _serve;
     private readonly bool _optionsGrant;
     private readonly bool _actualGrant;
+    private readonly Action? _onAccepted;
+    private readonly TaskCompletionSource _accepted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     internal List<RawRequest> Requests { get; } = [];
     internal Uri BaseAddress { get; }
+    internal Task ConnectionAccepted => _accepted.Task;
+    internal Task Completion => _serve;
 
-    internal RawCorsServer(bool optionsGrant, bool actualGrant)
+    internal RawCorsServer(bool optionsGrant, bool actualGrant, Action? onAccepted = null)
     {
         _optionsGrant = optionsGrant;
         _actualGrant = actualGrant;
+        _onAccepted = onAccepted;
         _listener.Start();
         BaseAddress = new Uri($"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}");
         _serve = ServeAsync();
@@ -347,6 +352,8 @@ internal sealed class RawCorsServer : IAsyncDisposable
             while (!_stop.IsCancellationRequested)
             {
                 using var connection = await _listener.AcceptTcpClientAsync(_stop.Token);
+                _accepted.TrySetResult();
+                _onAccepted?.Invoke();
                 await using var stream = connection.GetStream();
                 var data = new List<byte>();
                 var next = new byte[1];
@@ -369,9 +376,16 @@ internal sealed class RawCorsServer : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _stop.Cancel();
-        _listener.Stop();
-        await _serve;
-        _stop.Dispose();
+        try
+        {
+            // Let token-aware accept/read/write operations exit before disposing the socket.
+            await _serve;
+        }
+        finally
+        {
+            _listener.Stop();
+            _stop.Dispose();
+        }
     }
 }
 
