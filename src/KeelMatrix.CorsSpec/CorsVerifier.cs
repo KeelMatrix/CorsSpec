@@ -2,7 +2,7 @@ using System.Net;
 
 namespace KeelMatrix.CorsSpec;
 
-/// <summary>Executes CORS contracts through a caller-supplied <see cref="HttpClient"/>.</summary>
+/// <summary>Executes CORS contracts through a caller-owned <see cref="HttpClient"/> created by <see cref="CorsTransport.CreateClient(HttpMessageHandler)"/>.</summary>
 public sealed class CorsVerifier
 {
     private readonly HttpClient _client;
@@ -11,7 +11,7 @@ public sealed class CorsVerifier
     private readonly bool _allowTestHandler;
 
     /// <summary>Creates a verifier over a caller-owned client created by CorsTransport.CreateClient.</summary>
-    /// <remarks>For a preflighted scenario, this overload fails closed when the client has default request headers. Use the handler-factory overload when caller defaults or handler-added headers must remain on the actual request only.</remarks>
+    /// <remarks>Already-created ordinary clients, including TestServer.CreateClient, WebApplicationFactory.CreateClient and new HttpClient, return UnsupportedTransport before verification host I/O. For a preflighted scenario, this overload fails closed when the client has default request headers. Use the handler-factory overload when caller defaults or handler-added headers must remain on the actual request only.</remarks>
     public CorsVerifier(HttpClient client)
         : this(client, null, new SharedTelemetry())
     {
@@ -41,7 +41,7 @@ public sealed class CorsVerifier
         _telemetry = telemetry ?? throw new ArgumentNullException(nameof(telemetry));
     }
 
-    /// <summary>Executes one contract and evaluates browser-relevant response headers.</summary>
+    /// <summary>Executes one contract and evaluates the immutable first-response CORS evidence captured at the transport boundary.</summary>
     public async Task<CorsVerificationResult> VerifyAsync(CorsContract contract, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(contract);
@@ -60,7 +60,7 @@ public sealed class CorsVerifier
         if (!CorsTransport.IsSupportedClient(_client))
         {
             issues.Add(new CorsIssue(CorsFailureKind.UnsupportedTransport,
-                "Create the supplied client with CorsTransport.CreateClient so the verifier can observe effective headers and the first response."));
+                "Create the shared integration-test client with CorsTransport.CreateClient over a supported direct host or network handler, then set its BaseAddress, defaults and timeout. Already-created ordinary clients cannot expose effective headers and the first response to this verifier."));
             return CreateResult(contract, false, false, null, false, null, issues);
         }
 
@@ -123,8 +123,9 @@ public sealed class CorsVerifier
                 using var preflight = CreatePreflightRequest(scenario, preflightHeaderNames);
                 using var context = CreatePreflightContext(preflight, scenario);
                 response = await SendPreflightAsync(preflight, context, cancellationToken).ConfigureAwait(false);
-                preflightStatusCode = response.StatusCode;
-                var preflightEvaluation = CorsHeaderEvaluator.EvaluatePreflight(response, scenario, expectation, preflightHeaderNames);
+                using var firstResponse = context.FirstResponse!.CreateEvaluationResponse();
+                preflightStatusCode = firstResponse.StatusCode;
+                var preflightEvaluation = CorsHeaderEvaluator.EvaluatePreflight(firstResponse, scenario, expectation, preflightHeaderNames);
                 issues.AddRange(preflightEvaluation.Issues);
 
                 if (!expectation.IsAllowed)
@@ -179,9 +180,10 @@ public sealed class CorsVerifier
             actualRequestSent = true;
             actualResponse = await _client.SendAsync(actual, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             EnsureBoundary(context, actualResponse);
-            EnsureNoRedirect(expectedRequest, actualResponse);
-            actualStatusCode = actualResponse.StatusCode;
-            var actualEvaluation = CorsHeaderEvaluator.EvaluateActual(actualResponse, scenario, expectation);
+            EnsureNoRedirect(expectedRequest, context.FirstResponse!);
+            using var firstResponse = context.FirstResponse!.CreateEvaluationResponse();
+            actualStatusCode = firstResponse.StatusCode;
+            var actualEvaluation = CorsHeaderEvaluator.EvaluateActual(firstResponse, scenario, expectation);
             issues.AddRange(actualEvaluation.Issues);
 
             if (!expectation.IsAllowed && actualEvaluation.GrantsCorsAccess)
@@ -237,7 +239,7 @@ public sealed class CorsVerifier
             try
             {
                 EnsureBoundary(context, response);
-                EnsureNoRedirect(expectedRequest, response);
+                EnsureNoRedirect(expectedRequest, context.FirstResponse!);
                 return response;
             }
             catch
@@ -261,7 +263,7 @@ public sealed class CorsVerifier
         try
         {
             EnsureBoundary(context, factoryResponse);
-            EnsureNoRedirect(factoryExpectedRequest, factoryResponse);
+            EnsureNoRedirect(factoryExpectedRequest, context.FirstResponse!);
             return factoryResponse;
         }
         catch
@@ -294,22 +296,21 @@ public sealed class CorsVerifier
         return new Uri(_client.BaseAddress, requestUri);
     }
 
-    private static void EnsureNoRedirect(ExpectedRequestIdentity expectedRequest, HttpResponseMessage response)
+    private static void EnsureNoRedirect(ExpectedRequestIdentity expectedRequest, FirstCorsResponse response)
     {
         if (IsRedirectStatusCode(response.StatusCode))
         {
             throw new RedirectNotSupportedException("The CORS verifier does not follow redirects; the supplied transport returned a redirect response.");
         }
 
-        var observedRequest = response.RequestMessage;
-        if (observedRequest?.RequestUri is null)
+        if (response.RequestMethod is null || response.RequestUri is null)
         {
             throw new RedirectNotSupportedException("The supplied transport did not expose request provenance, so the response cannot be attributed to the requested CORS operation.");
         }
 
-        if (!string.Equals(expectedRequest.Method, observedRequest.Method.Method, StringComparison.Ordinal) ||
+        if (!string.Equals(expectedRequest.Method, response.RequestMethod, StringComparison.Ordinal) ||
             expectedRequest.Uri is null ||
-            !UriEquals(expectedRequest.Uri, observedRequest.RequestUri))
+            !UriEquals(expectedRequest.Uri, response.RequestUri))
         {
             throw new RedirectNotSupportedException("The supplied HttpClient followed a redirect, so the response cannot be attributed to the requested CORS operation.");
         }
@@ -366,7 +367,8 @@ public sealed class CorsVerifier
 
     private static void EnsureBoundary(CorsSendContext context, HttpResponseMessage response)
     {
-        if (context.Calls != 1 || !ReferenceEquals(context.Response, response) || context.Effective is null)
+        if (context.Calls != 1 || !ReferenceEquals(context.Response, response) || context.Effective is null ||
+            (!context.Prepare && context.FirstResponse is null))
         {
             context.Response?.Dispose();
             throw new UnsupportedCorsRequestException("The supplied handler pipeline did not return the first observed response.", CorsFailureKind.RedirectNotSupported);

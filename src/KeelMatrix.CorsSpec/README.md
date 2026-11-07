@@ -8,12 +8,15 @@ Install it with:
 dotnet add package KeelMatrix.CorsSpec
 ```
 
+Create the shared integration-test client once through `CorsTransport.CreateClient` over the existing host's direct handler. Use it for ordinary tests and `CorsVerifier`; you own and dispose the client, and application startup stays in your test setup. For `WebApplicationFactory`, use `factory.Server.CreateHandler()`.
+
 ```csharp
 using KeelMatrix.CorsSpec;
 using System.Net.Http;
 
 using var testClient = CorsTransport.CreateClient(testServer.CreateHandler());
 testClient.BaseAddress = new Uri("http://localhost");
+using var ordinaryResponse = await testClient.GetAsync("/api/orders");
 var contract = new CorsContract(
     new CorsScenario("/api/orders", "https://app.example", HttpMethod.Get),
     CorsExpectation.Allowed());
@@ -31,9 +34,11 @@ var result = await verifier.VerifyAsync(contract);
 
 Factory-created preflights use the caller's `HttpClient.Timeout`, so finite timeouts bound preflight completion. `Timeout.InfiniteTimeSpan` remains bounded by an explicit cancellation token; a timeout is reported as `NetworkFailure` and does not send the actual request.
 
+Already-created ordinary clients from `TestServer.CreateClient()`, `WebApplicationFactory.CreateClient()`, or `new HttpClient` return actionable `UnsupportedTransport` before verification host I/O. Change client creation once, then configure `BaseAddress`, defaults and timeout as usual. Factory client settings and automatic redirect/cookie handlers do not transfer to the direct handler; supported network handlers must disable automatic redirects. This version supplies no host-observer adapter. Supported delegating handlers must meet the deterministic preparation contract in the [contract guide](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/cors-contracts.md).
+
 Declare author header names or model values with `CorsRequestHeader`. The client must come from `CorsTransport.CreateClient`: preparation observes defaults and handler-added values without host I/O, then the final boundary checks the same method, target, origin, normalized values and encoding. Missing values or unsupported transports cannot become a successful denial. Explicit values override defaults. Supported terminal handlers are direct Microsoft TestHost `ClientHandler` and exact `HttpClientHandler`/`SocketsHttpHandler`; network handlers must disable automatic redirects, authentication and decompression. Ordinary unregistered clients and other opaque terminals are unsupported. Direct TestHost headers must retain one identical value after .NET parsing; formatting or splitting changes return `UnsupportedRequest`. Use canonical single values or a supported network handler for raw fields.
 
-Generated preflight names are sorted lowercase and comma-only. A clean preflight factory keeps caller defaults and credentials off `OPTIONS`, inherits the client timeout/cancellation boundary, and must satisfy the same transport contract. First redirect responses are unsupported for both expectations, including self-redirects; terminal URI equality alone is not redirect evidence. Cookies are browser-managed credentials, while `Authorization` is a declarable author header. The [contract guide](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/cors-contracts.md) maintains encoding, 128/1024-byte limits, handler preparation, missing-value behavior and migration instructions.
+Generated preflight names are sorted lowercase and comma-only. A clean preflight factory keeps caller defaults and credentials off `OPTIONS`, inherits the client timeout/cancellation boundary, and must satisfy the same transport contract. Verdicts use an immutable snapshot of the first response's status, CORS headers and request provenance; later handler mutations cannot change that evidence. First redirect responses are unsupported for both expectations, including self-redirects; terminal URI equality alone is not redirect evidence. Cookies are browser-managed credentials, while `Authorization` is a declarable author header. The [contract guide](https://github.com/KeelMatrix/CorsSpec/blob/main/docs/cors-contracts.md) maintains encoding, 128/1024-byte limits, handler preparation, missing-value behavior and migration instructions.
 
 Scenario targets must be relative application paths; raw C0 controls (`U+0000`–`U+001F`) and `DEL` (`U+007F`), URI authorities and schemes at the reference start, backslashes, UNC/device paths, and every slash-prefixed root-relative Windows drive-shaped path such as `/C:`, `/C:/orders`, or `/C:orders` are rejected before I/O. Percent-encoded path data remains valid, and raw scheme-like text in query or fragment data such as `?next=https://external.example/orders` or `?next=/C:orders` remains valid. Browser-forbidden `CONNECT`, `TRACE`, and `TRACK` methods, browser-managed headers, and conditional override headers (`X-HTTP-Method`, `X-HTTP-Method-Override`, and `X-Method-Override`) are also rejected before I/O. `Set-Cookie` and `Set-Cookie2` cannot be asserted as exposed response headers because browsers forbid exposing them.
 

@@ -142,5 +142,7 @@ foreach (var length in new[] { 128, 129 })
     }
 }
 
+await FirstResponseProbes.RunAsync();
+await ClientBoundaryProbes.RunAsync();
 Console.WriteLine("Package consumer smoke passed: simple and preflight allowed/denied CORS contracts verified.");
 await app.DisposeAsync();

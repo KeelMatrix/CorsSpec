@@ -11,7 +11,7 @@ public static class CorsTransport
 
     /// <summary>Creates a client for CORS verification over a supported terminal handler.</summary>
     /// <param name="handler">A new handler pipeline ending in an exact <see cref="SocketsHttpHandler"/>, <see cref="HttpClientHandler"/>, or ASP.NET Core TestHost ClientHandler. Network handlers must disable automatic redirects, automatic authentication and automatic decompression. The client owns the pipeline.</param>
-    /// <remarks>Configure the returned client's BaseAddress, defaults and timeout as usual. Verification first runs the handler pipeline without sending to the host to obtain effective headers. Handlers must support this preparation and send the same operation on execution. Unknown terminal handlers are unsupported.</remarks>
+    /// <remarks>Create this client once and share it between integration tests and CorsVerifier. Configure its BaseAddress, defaults and timeout as usual. A direct WebApplicationFactory.Server.CreateHandler does not inherit factory client configuration or automatic redirect/cookie handlers. Verification first runs the handler pipeline without sending to the host to obtain effective headers. Handlers must support this preparation and send the same operation on execution. Verdicts evaluate the first response's status, CORS headers and request provenance captured by value before caller handlers regain control; later response mutations do not change that evidence. Unknown terminal handlers are unsupported. This version supplies no host-observer adapter.</remarks>
     public static HttpClient CreateClient(HttpMessageHandler handler) => CreateClient(handler, allowTestHandler: false);
 
     internal static HttpClient CreateClient(HttpMessageHandler handler, bool allowTestHandler)
@@ -79,6 +79,7 @@ internal sealed class CorsSendContext(CorsScenario scenario, bool prepare, bool 
     internal Uri? Target { get; init; }
     internal string? PreflightHeaders { get; set; }
     internal HttpResponseMessage? Response { get; set; }
+    internal FirstCorsResponse? FirstResponse { get; set; }
     public void Dispose() => Response?.Dispose();
 }
 
@@ -150,6 +151,7 @@ internal sealed class CorsSendBoundary : DelegatingHandler
 
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         context.Response = response;
+        context.FirstResponse = FirstCorsResponse.Capture(response);
         return response;
     }
 
