@@ -262,14 +262,13 @@ try {
     Assert-InspectionFails $licenseDrift 'substituted package license'
 
     $changelogFixture = Join-Path $fixtureRoot 'changelog.md'
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'CHANGELOG.md') -Destination $changelogFixture
-    $leapChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2026-09-24', '2024-02-29')
-    $validReleaseChangelog = $leapChangelog.Replace('2024-02-29', '2026-09-24')
+    $validReleaseChangelog = "# Changelog`n`n## [Unreleased]`n`n## [0.1.0] - 2024-01-31`n`n### Added`n`n- Verifies CORS contracts.`n"
+    $leapChangelog = $validReleaseChangelog.Replace('2024-01-31', '2024-02-29')
     Set-Content -LiteralPath $changelogFixture -Value $leapChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Release contract rejected a valid leap-day changelog date.' }
 
-    $invalidDateChangelog = (Get-Content -Raw -LiteralPath $changelogFixture).Replace('2024-02-29', '2023-02-29')
+    $invalidDateChangelog = $leapChangelog.Replace('2024-02-29', '2023-02-29')
     Set-Content -LiteralPath $changelogFixture -Value $invalidDateChangelog -Encoding utf8
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag v0.1.0 -ChangelogPath $changelogFixture 2>$null
     if ($LASTEXITCODE -eq 0) { throw 'Release contract accepted an invalid calendar date.' }
