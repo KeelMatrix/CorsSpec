@@ -4,37 +4,12 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 
 ## [Unreleased]
 
-### Added
-
-- Evaluates immutable first-response status, CORS metadata and request provenance before caller handlers can alter the evidence for an allowed or denied contract.
-- Provides bounded flat changelog validation with one structural interpretation and explicit rejection of comments, HTML, code, indentation and ambiguous containers; normal and release workflow failures propagate.
-- Validates targeted IDE-generated-file ignore coverage with nested probes, removal controls and product-file preservation.
-- Uses one effective request representation for validation, classification, preflight names, and actual serialization: explicit scenario values override same-named client defaults, effective combined fields are normalized and bounded using the supported transport encoding, and content headers are serialized on request content before I/O.
-- Aligns expected preflight max-age validation with effective request classification, including unsafe values from declared client default headers; dependency-audit JSON validation rejects partial or ambiguous reports, and activation calls follow response-level verdict eligibility.
-- Factory-created preflights now inherit the caller's `HttpClient.Timeout` and cancellation boundary; finite timeout failures are reported as `NetworkFailure`, do not send the actual request, and still dispose returned handlers.
-- Provides a dedicated preflight handler factory so generated `OPTIONS` requests contain only browser preflight metadata while actual requests retain caller defaults and handler behavior; clients with default request headers fail closed unless the dedicated factory is supplied.
-- Accepts raw scheme-like `://` text in relative target query and fragment data while continuing to reject schemes and authorities at the start of a target.
-- Requires successful (200–299) preflight responses before sending an allowed actual request, and reports a dedicated preflight-status failure.
-- Rejects direct TestHost headers when .NET materialization would reformat or split the classified field, including raw/canonical content-header byte boundaries; canonical single values and raw-preserving network transports remain supported.
-- Uses a caller-owned shared integration-test client created through `CorsTransport.CreateClient` over a supported direct TestHost or no-auto-redirect network handler. Already-created ordinary TestServer, WebApplicationFactory and `new HttpClient` clients return actionable `UnsupportedTransport` before verification host I/O; factory client settings and automatic redirect/cookie handlers do not transfer automatically, and no host-observer adapter is supplied. Preparation observes effective headers without host I/O. Missing values, unsupported transports and changed operations fail explicitly; first redirects, including self-redirects, are unsupported on actual and preflight paths, while `304` remains evaluable.
-- Enforces canonical browser origins, exact credential permission syntax, bounded immutable contract snapshots, browser-managed header rejection, and non-credentialed wildcard method/header exposure semantics.
-- Honors the browser CORS response-header safelist, rejects malformed response metadata instead of accepting a valid token from an invalid list, and classifies modeled caller request-header values using the browser safelist's 128-byte per-value and 1024-byte aggregate limits, ASCII single-range grammar, and MIME type parsing rules.
-- Rejects absolute target paths, slash-prefixed root-relative Windows drive paths, Windows separators, browser-forbidden methods and conditional override headers, and impossible `Set-Cookie`/`Set-Cookie2` exposure expectations before I/O.
-- Rejects every slash-prefixed root-relative Windows drive-shaped target, including ordinary, nested, query-bearing, and fragment-bearing suffixes, while preserving scheme-like and encoded data after query/fragment delimiters.
-- Normalizes the browser-standard method names `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST`, and `PUT` to uppercase while preserving custom method casing.
-- Rejects raw C0 and `DEL` target-path controls before caller I/O while allowing intentionally percent-encoded path data.
-- Verifies package and symbol archive identity, structure, provenance, and portable PDB SourceLink metadata against the checked-out candidate SHA; the package-consumer smoke covers simple and custom preflight behavior on Windows, Linux, and macOS.
-- Builds browser-style preflights with `Accept: */*`, applies exact response-token casing for allow-method matching, and permits preflighted `GET`, `HEAD`, and `POST` scenarios without requiring an allow-method token while still rejecting malformed lists.
-- Distinguishes absent, valid-empty, wildcard, and explicit-member states for all three CORS response list fields, including valid empty metadata where the protocol does not require a match and wildcard-plus-member syntax.
-- Accepts only HTTP optional whitespace (`SP` and `HTAB`) around CORS response metadata and fails closed on Unicode whitespace, invalid controls, obs-text boundaries, and malformed `Vary: Origin` lists.
-- Requests the parameterless shared activation method after a single-contract verdict or once per completed matrix with an eligible verdict; canceled matrices and unsupported configurations do not activate, and no CORS data is supplied.
-- Pins Windows validation to the GitHub-hosted Windows Server 2025 x64 `windows-2025` image and scopes the platform documentation to that CI evidence rather than a Windows 10/11 consumer-host claim.
-- Links consumers to the shared `KeelMatrix.Telemetry` privacy contract for payload, opt-out, state, delivery, failure handling, and retention; core verification remains caller-owned and can be fully offline with a local test host.
-
-## [0.1.0] - 2026-09-24
+## [0.1.0] - 2026-11-08
 
 ### Added
 
-- Provides executable CORS contracts for supplied `HttpClient` instances, including automatic simple-request and preflight execution.
-- Reports browser-relevant verdicts for origins, methods, requested headers, credentials, `Vary: Origin`, exposed headers, and preflight max-age while requiring a successful status for allowed preflights.
-- Supports bounded matrix verification for repeated origins, methods, and headers.
+- Provides executable allowed and denied CORS contracts for .NET 8 applications through caller-owned clients created with `CorsTransport.CreateClient`, supporting direct ASP.NET Core TestHost handlers and configured BCL network handlers.
+- Sends simple requests and browser-style preflights, checking origins, methods, requested headers, credentials, `Vary: Origin`, exposed headers, and optional preflight max-age; allowed preflights require a successful 2xx response before the actual request.
+- Supports bounded contract matrices and structured diagnostics with assertions that identify the failed CORS dimension without exposing credentials or response bodies.
+- Evaluates effective requests and immutable first-response evidence, rejecting unsupported clients, transports, redirects, and changed operations for both allowed and denied expectations. Clean preflight handler factories isolate caller defaults and credentials while honoring timeout and cancellation.
+- Keeps core verification fully offline with a local test host and supplies no CORS contract data to optional shared activation telemetry.
