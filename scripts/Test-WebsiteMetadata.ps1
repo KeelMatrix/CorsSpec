@@ -5,6 +5,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'WebsiteMetadata.ps1')
 . (Join-Path $PSScriptRoot 'Invoke-ValidationStage.ps1')
 . (Join-Path $PSScriptRoot '../build/Invoke-NestedPwsh.ps1')
+Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-WebsiteProjectSelection.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Website project-selection regression failed.' }
 $manifest = '{"schemaVersion":1,"packages":{"KeelMatrix.CorsSpec":{"visibility":"public-product","role":"primary"}}}'
 $url = 'https://github.com/KeelMatrix/CorsSpec'
 $tags = 'cors;keelmatrix-public-product;keelmatrix-primary'
@@ -127,6 +129,7 @@ try {
     $tokens = $null
     $errors = $null
     $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'Validate.ps1'), [ref]$tokens, [ref]$errors)
+    $metadataScriptDirectory = $PSScriptRoot
     foreach ($name in @('Website source metadata', 'Website archive metadata')) {
         if ($name -ceq 'Website archive metadata') {
             [IO.File]::WriteAllText($propsPath, $props)
@@ -140,8 +143,10 @@ try {
             $root = $fixture
             $packages = $fixture
             $failures = [Collections.Generic.List[string]]::new()
-            & ([scriptblock]::Create($stage[0].Extent.Text)) *> $null
+            $stageText = $stage[0].Extent.Text.Replace('$PSScriptRoot', '$metadataScriptDirectory')
+            $stageOutput = & ([scriptblock]::Create($stageText)) 2>&1
             if ($failures.Count -ne 1 -or $failures[0] -cne $name) { throw "Validation lost the website failure for '$name'." }
+            if (($stageOutput -join "`n") -notmatch 'Website sentinels') { throw "Validation did not reach metadata rejection for '$name': $stageOutput" }
         }
         $checks++
     }

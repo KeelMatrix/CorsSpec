@@ -65,8 +65,11 @@ function Assert-WebsiteMetadata([string]$ManifestJson, [object[]]$Packages) {
 }
 
 function Get-WebsiteSourcePackages([string]$RepositoryRoot) {
-    $projects = @(Get-ChildItem -LiteralPath $RepositoryRoot -Filter '*.csproj' -Recurse -File |
-        Where-Object { [IO.Path]::GetRelativePath($RepositoryRoot, $_.FullName) -notmatch '(^|[\\/])(bin|obj|artifacts|\.git)([\\/]|$)' })
+    # Select all ordinary .NET SDK languages before evaluating packability;
+    # neither solution membership nor a source/test/helper location limits it.
+    $projects = @(Get-ChildItem -LiteralPath $RepositoryRoot -Recurse -File -Force |
+        Where-Object { $_.Extension -in @('.csproj', '.vbproj', '.fsproj') -and
+            [IO.Path]::GetRelativePath($RepositoryRoot, $_.FullName) -notmatch '(^|[\\/])(bin|obj|artifacts|\.git)([\\/]|$)' })
     foreach ($project in $projects) {
         $output = & dotnet msbuild $project.FullName -nologo -p:Configuration=Release '-getProperty:IsPackable,PackageId,PackageTags,PackageProjectUrl,RepositoryUrl,RepositoryType'
         if ($LASTEXITCODE -ne 0) { throw "Website metadata evaluation failed for '$($project.Name)'." }

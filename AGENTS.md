@@ -7,7 +7,7 @@
 - `tests/KeelMatrix.CorsSpec.IntegrationTests` runs the verifier against real ASP.NET Core `TestServer` middleware and endpoint policies.
 - `tests/PackageSmoke` is a fresh non-packable consumer that references the built package through an isolated local feed.
 - `scripts/Validate.ps1` is the local CI-equivalent gate. It also checks package contents and reports the required icon prerequisite.
-- `scripts/Validate-WebsiteMetadata.ps1` checks the root classification manifest against evaluated source metadata and optional built package/symbol archives; `Test-WebsiteMetadata.ps1` covers metadata rejection and stage failure propagation.
+- `scripts/Validate-WebsiteMetadata.ps1` checks the root classification manifest against evaluated Release source metadata for C#/VB/F# projects and optional built package/symbol archives; `Test-WebsiteMetadata.ps1` covers metadata rejection and stage failure propagation, including `Test-WebsiteProjectSelection.ps1` for project selection and overrides.
 - `docs/cors-contracts.md` contains the deeper consumer guide.
 
 ## Commands
@@ -37,7 +37,7 @@ dotnet test tests/KeelMatrix.CorsSpec.IntegrationTests -c Release
 - Diagnostics never copy response bodies, cookies, authorization values, bearer tokens, or arbitrary response headers.
 - The root `icon.png` is a required release asset. Do not create, copy, modify, delete, commit, or push icon bytes.
 - `scripts/Test-CommitHistory.ps1` checks every reachable commit for developer-facing authorship and message metadata; CI must fetch full history for that check.
-- Tests and consumers are explicitly non-packable and are not included in the public package.
+- Tests, consumers, samples and helpers are explicitly non-packable under effective Release settings, regardless of C#/VB/F# language or solution membership, and are not included in the public package.
 
 ## Validation
 

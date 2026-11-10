@@ -7,6 +7,7 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 ### Fixed
 
 - Declares package classification for automatic catalog discovery, including a repository manifest fallback for existing published versions.
+- Rejects additional packable C#, Visual Basic and F# projects during metadata validation, including projects outside the solution and inherited Release overrides.
 
 ## [0.1.0] - 2026-11-08
 

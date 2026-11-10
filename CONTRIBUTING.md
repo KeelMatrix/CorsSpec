@@ -8,7 +8,7 @@ Install the .NET 8 SDK and restore from the repository's `NuGet.config`.
 
 Run `pwsh ./scripts/Validate.ps1` from the repository root. The script runs the Release build, tests, package inspection, dependency audit, and isolated package-consumer smoke test. The root `icon.png` is a required release asset; the package gate reports it as a prerequisite and never creates it.
 
-Package metadata changes must keep `keelmatrix.website.json`, evaluated shipping project tags and canonical repository URLs aligned. The same gate checks source metadata and both package archives; see the [development guide](docs/DEV.md#package-discovery-metadata) for focused commands.
+Package metadata changes must keep `keelmatrix.website.json`, evaluated shipping project tags and canonical repository URLs aligned. C#, Visual Basic and F# test, sample and helper projects must remain non-packable under their effective Release settings, including inherited properties and targets overrides. The same gate checks source metadata and both package archives; see the [development guide](docs/DEV.md#package-discovery-metadata) for focused commands.
 
 Keep public API changes documented in the shipping project's `PublicAPI.Shipped.txt` or `PublicAPI.Unshipped.txt` according to the release process. Do not add credentials, private application data, or generated build output. Local and CI validation must set `KEELMATRIX_NO_TELEMETRY=1`; activation-eligibility tests use only the injected call seam and must not create demand measurements. Shared payload, opt-out, and delivery behavior belongs to `KeelMatrix.Telemetry`; do not recreate those tests here. The CorsSpec adapter calls the parameterless shared API and must not pass contract data.
 
