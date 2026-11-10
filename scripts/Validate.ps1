@@ -40,6 +40,12 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 New-Item -ItemType Directory -Force -Path $packages | Out-Null
 
 $env:KEELMATRIX_NO_TELEMETRY = '1'
+Invoke-ValidationStage -Name 'Website metadata regression' -Failures $failures -Command {
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-WebsiteMetadata.ps1')
+}
+Invoke-ValidationStage -Name 'Website source metadata' -Failures $failures -Command {
+    Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-WebsiteMetadata.ps1') -RepositoryRoot $root
+}
 Invoke-ValidationStage -Name 'IDE ignore coverage' -Failures $failures -Command {
     Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-IgnoreCoverage.ps1')
 }
@@ -71,6 +77,9 @@ if (-not $SkipPackage) {
         Where-Object { $_.Extension -in @('.nupkg', '.snupkg') } |
         Remove-Item -Force
     Invoke-ValidationStage -Name 'Package build' -Failures $failures -Command { dotnet pack $project --configuration Release --no-build --no-restore -p:Version=$Version --output $packages }
+    Invoke-ValidationStage -Name 'Website archive metadata' -Failures $failures -Command {
+        Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-WebsiteMetadata.ps1') -RepositoryRoot $root -PackageDirectory $packages
+    }
     $package = Join-Path $packages "KeelMatrix.CorsSpec.$Version.nupkg"
     $symbols = Join-Path $packages "KeelMatrix.CorsSpec.$Version.snupkg"
     Invoke-ValidationStage -Name 'Release artifact contract' -Failures $failures -Command { Invoke-NestedPwsh -NoProfile -File (Join-Path $PSScriptRoot 'Validate-ReleaseContract.ps1') -Tag "v$Version" -ArtifactDirectory $packages -RequireIcon:$RequireIcon }

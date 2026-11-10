@@ -7,6 +7,7 @@
 - `tests/KeelMatrix.CorsSpec.IntegrationTests` runs the verifier against real ASP.NET Core `TestServer` middleware and endpoint policies.
 - `tests/PackageSmoke` is a fresh non-packable consumer that references the built package through an isolated local feed.
 - `scripts/Validate.ps1` is the local CI-equivalent gate. It also checks package contents and reports the required icon prerequisite.
+- `scripts/Validate-WebsiteMetadata.ps1` checks the root classification manifest against evaluated source metadata and optional built package/symbol archives; `Test-WebsiteMetadata.ps1` covers metadata rejection and stage failure propagation.
 - `docs/cors-contracts.md` contains the deeper consumer guide.
 
 ## Commands

@@ -8,6 +8,8 @@ A configured CORS policy is not the same thing as a working browser contract. `K
 dotnet add package KeelMatrix.CorsSpec
 ```
 
+Package classification and its validation are documented in the [development guide](docs/DEV.md#package-discovery-metadata).
+
 ## Quick Start
 
 Create the shared integration-test client once through `CorsTransport.CreateClient` over the existing host's direct handler. Use it for ordinary integration tests and `CorsVerifier`; you own and dispose the client, and application startup stays in your test setup. For `WebApplicationFactory`, use `factory.Server.CreateHandler()`.

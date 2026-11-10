@@ -4,6 +4,10 @@ This file records consumer-facing changes to KeelMatrix.CorsSpec.
 
 ## [Unreleased]
 
+### Fixed
+
+- Declares package classification for automatic catalog discovery, including a repository manifest fallback for existing published versions.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added

@@ -49,9 +49,11 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -File ./build/Test-NestedPwshLaunch.ps1
 
-      - name: Run repository validation
+      - name: Run repository and package metadata validation
         shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -Version 0.1.0
+        run: |
+          pwsh -NoProfile -File ./scripts/Validate.ps1 -Mode Full -Version 0.1.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload validated package artifacts
         if: success()

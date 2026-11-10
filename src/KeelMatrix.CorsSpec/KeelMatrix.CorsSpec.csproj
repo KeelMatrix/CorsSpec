@@ -6,7 +6,7 @@
     <RootNamespace>KeelMatrix.CorsSpec</RootNamespace>
     <PackageId>KeelMatrix.CorsSpec</PackageId>
     <Description>Verify ASP.NET Core CORS and preflight behavior with executable endpoint/origin contracts.</Description>
-    <PackageTags>cors;aspnetcore;preflight;testing;http;integration-testing;security</PackageTags>
+    <PackageTags>cors;aspnetcore;preflight;testing;http;integration-testing;security;keelmatrix-public-product;keelmatrix-primary</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Copyright>KeelMatrix</Copyright>
